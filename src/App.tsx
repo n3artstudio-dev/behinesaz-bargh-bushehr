@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Engine } from "./game/Engine";
 import { useGame } from "./game/store";
 import HUD from "./components/HUD";
-import { CinematicOverlay, HelpPanel, InventoryPanel, MainMenu, MapPanel, MissionsPanel, PauseMenu, SettingsPanel, StatsPanel } from "./components/Menus";
+import { CinematicOverlay, HelpPanel, InventoryPanel, MainMenu, MapPanel, MissionsPanel, PauseMenu, SettingsPanel, StatsPanel, WorldsPanel } from "./components/Menus";
 import { DialogBox, MissionComplete, ScannerPanel, SolarPanelUI } from "./components/Panels";
 import { audio } from "./game/audio";
 
@@ -42,6 +42,8 @@ export default function App() {
 
   const startNew = () => {
     newGame();
+    engineRef.current?.resetPads();
+    engineRef.current?.travelWorld(1);
     setPhase("cinematic");
     engineRef.current?.startCinematic(() => {
       useGame.getState().setPhase("playing");
@@ -49,9 +51,16 @@ export default function App() {
     });
   };
   const continueGame = () => {
-    load();
+    const ok = load();
     setPhase("playing");
-    engineRef.current?.startPlay();
+    const eng = engineRef.current;
+    if (eng) {
+      eng.resetPads();
+      if (ok) for (const id of useGame.getState().worldPads) eng.zones.setPad(id, true);
+      const w = useGame.getState().activeWorld;
+      eng.startPlay();
+      if (w !== 1) eng.travelWorld(w);
+    }
   };
   const toMenu = () => {
     setPhase("menu");
@@ -83,6 +92,7 @@ export default function App() {
       {panel === "solar" && <SolarPanelUI />}
       {panel === "missionComplete" && <MissionComplete />}
       {panel === "map" && <MapPanel />}
+      {panel === "worlds" && <WorldsPanel engine={engine} />}
       {panel === "missions" && <MissionsPanel />}
       {panel === "inventory" && <InventoryPanel />}
       {panel === "stats" && <StatsPanel />}

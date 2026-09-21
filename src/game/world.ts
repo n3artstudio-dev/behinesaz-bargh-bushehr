@@ -9,7 +9,7 @@ export interface AABB {
   minZ: number;
   maxZ: number;
 }
-export type InteractKind = "npc" | "appliance" | "ladder" | "solar" | "shop" | "station" | "roofdown";
+export type InteractKind = "npc" | "appliance" | "ladder" | "solar" | "shop" | "station" | "roofdown" | "worldgate" | "pad";
 export interface Interactable {
   id: string;
   pos: THREE.Vector3;

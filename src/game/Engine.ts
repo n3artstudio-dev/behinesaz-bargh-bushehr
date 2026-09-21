@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { buildWorld, type AABB, type Interactable, type World } from "./world";
 import { Character, npcPreset } from "./characters";
-import { houseConsumption, isPeak, meterColor, sunFactor, useGame } from "./store";
+import { houseConsumption, isWorldUnlocked, isPeak, meterColor, sunFactor, useGame } from "./store";
 import { audio } from "./audio";
+import { buildExtraWorlds, WORLD_SPAWNS, type ExtraZones } from "./worlds";
 
 interface Npc {
   char: Character;
@@ -31,6 +32,7 @@ export class Engine {
   camera: THREE.PerspectiveCamera;
   clock = new THREE.Clock();
   world: World;
+  zones!: ExtraZones;
   hero: Character;
   npcs: Npc[] = [];
   sun: THREE.DirectionalLight;
@@ -108,6 +110,9 @@ export class Engine {
 
     this.world = buildWorld();
     this.scene.add(this.world.group);
+    this.zones = buildExtraWorlds(this.world);
+    // restore completed world pads from save
+    for (const id of useGame.getState().worldPads) this.zones.setPad(id, true);
 
     // unique materials for toggled emissive meshes
     const uniq = (m: THREE.Mesh) => {
@@ -372,7 +377,55 @@ export class Engine {
         st.setPanel("stats");
         audio.open();
         break;
+      case "worldgate": {
+        const n = parseInt(it.id.replace("gate_", ""), 10);
+        const gateZ = [108, 250, 392][n - 2];
+        const goingForward = this.pos.z < gateZ;
+        if (goingForward) {
+          if (!isWorldUnlocked(st.missions, st.worldPads, n)) {
+            st.toast(n === 2 ? "اول مأموریت بوشهر را کامل کن" : n === 3 ? "اول مأموریت شهر خورشیدی را کامل کن" : "اول مأموریت انرژی بادی را کامل کن", "warn");
+            audio.warn();
+          } else this.travelWorld(n);
+        } else {
+          this.travelWorld(n - 1);
+        }
+        break;
+      }
+      case "pad": {
+        if (st.worldPads.includes(it.id)) {
+          st.toast("این مرحله قبلاً انجام شده ✓", "info");
+          break;
+        }
+        st.completePad(it.id);
+        this.zones.setPad(it.id, true);
+        audio.zap();
+        setTimeout(() => audio.success(), 250);
+        if (st.worldPads.length && st.worldPads.filter((p) => p.slice(0, 5) === it.id.slice(0, 5)).length === 3) this.hero.celebrate();
+        break;
+      }
     }
+  }
+
+  resetPads() {
+    this.zones.reset();
+  }
+
+  travelWorld(n: number) {
+    const sp = WORLD_SPAWNS[n];
+    if (!sp) return;
+    this.pos.set(sp.x, sp.y, sp.z);
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+    this.heading = Math.PI;
+    this.yaw = Math.PI;
+    this.pitch = 0.3;
+    const st = useGame.getState();
+    st.setActiveWorld(n);
+    st.setOnRoof(false);
+    st.setInHouse(false);
+    st.toast(n === 1 ? "بازگشت به بوشهر" : n === 2 ? "به شهر خورشیدی خوش آمدی ☀️" : n === 3 ? "به منطقه انرژی بادی خوش آمدی 💨" : "به شهر انرژی پیشرفته خوش آمدی ⚛️", "info");
+    audio.open();
+    this.updateCamera(1, true);
   }
 
   private jump() {
@@ -422,7 +475,7 @@ export class Engine {
     }
     // world bounds
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -60, 60);
-    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -44, 80);
+    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -44, 545);
   }
 
   private inAABB(b: AABB, x: number, z: number) {
@@ -838,6 +891,8 @@ export class Engine {
     sm.emissiveIntensity = 0.6 + Math.sin(t * 6) * 0.2;
     // scanner in hand
     this.hero.setScannerVisible(st.scannerActive);
+    // extra worlds (solar city, wind, nuclear) animations
+    this.zones.update(dt, t, st.activeWorld);
     // peak announcement
     if (isPeak(time) && !this.peakAnnounced && st.phase === "playing") {
       this.peakAnnounced = true;

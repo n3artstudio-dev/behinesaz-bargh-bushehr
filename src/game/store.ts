@@ -13,6 +13,7 @@ export type Panel =
   | "dialog"
   | "missionComplete"
   | "solar"
+  | "worlds"
   | "help";
 
 export type ApplianceType = "bulb" | "fridge" | "ac" | "tv" | "light";
@@ -83,6 +84,8 @@ interface SaveData {
   scannerUnlocked: boolean;
   neighborhood: number;
   worldCoinsCollected: number[];
+  activeWorld: number;
+  worldPads: string[];
   hasSave: boolean;
 }
 
@@ -110,6 +113,10 @@ export interface GameState extends SaveData {
   setPlayerPos: (x: number, z: number, yaw: number) => void;
   setInHouse: (v: boolean) => void;
   setOnRoof: (v: boolean) => void;
+  activeWorld: number;
+  worldPads: string[];
+  setActiveWorld: (n: number) => void;
+  completePad: (id: string) => void;
   tickTime: (dtMin: number) => void;
   addCoins: (n: number, silent?: boolean) => void;
   addXp: (n: number) => void;
@@ -134,6 +141,23 @@ export interface GameState extends SaveData {
 }
 
 const SAVE_KEY = "behinesaz-bushehr-save-v1";
+
+export function isWorldUnlocked(
+  missions: Mission[],
+  worldPads: string[],
+  n: number,
+) {
+  if (n <= 1) return true;
+  if (n === 2) return missions[0]?.state === "done";
+  if (n === 3) return ["solar_a", "solar_b", "solar_c"].every((p) => worldPads.includes(p));
+  if (n === 4) return ["wind_a", "wind_b", "wind_c"].every((p) => worldPads.includes(p));
+  return false;
+}
+export function worldPadProgress(worldPads: string[], world: number) {
+  const pre = world === 2 ? "solar" : world === 3 ? "wind" : "plant";
+  const done = worldPads.filter((p) => p.startsWith(pre)).length;
+  return { done, total: 3 };
+}
 
 export const LEVEL_XP = [0, 200, 500, 900, 1400, 2000, 2800];
 export function levelFromXp(xp: number) {
@@ -335,6 +359,8 @@ export const useGame = create<GameState>((set, get) => ({
   lastMissionReward: null,
   weather: "clear",
   levelUpFlash: 0,
+  activeWorld: 1,
+  worldPads: [],
 
   setPhase: (phase) => set({ phase }),
   setPanel: (panel) => set({ panel }),
@@ -344,6 +370,36 @@ export const useGame = create<GameState>((set, get) => ({
   setPlayerPos: (x, z, yaw) => set({ playerPos: { x, z, yaw } }),
   setInHouse: (inHouse) => set({ inHouse }),
   setOnRoof: (onRoof) => set({ onRoof }),
+  setActiveWorld: (n) => set({ activeWorld: n }),
+  completePad: (id) => {
+    const s = get();
+    if (s.worldPads.includes(id)) return;
+    // lazy import-safe: pad definitions mirrored via lookup through dynamic require is not possible;
+    // pads grouped by prefix below
+    const world = id.startsWith("solar") ? 2 : id.startsWith("wind") ? 3 : 4;
+    const totalPads = 3;
+    const done = [...s.worldPads, id];
+    set({ worldPads: done });
+    get().addCoins(60);
+    get().addXp(60);
+    get().toast("یک مرحله انجام شد! +۶۰ سکه", "success");
+    const mine = done.filter((p) => (world === 2 ? p.startsWith("solar") : world === 3 ? p.startsWith("wind") : p.startsWith("plant")));
+    if (mine.length === totalPads) {
+      const titles: Record<number, string> = {
+        2: "شهر خورشیدی روشن شد! ☀️",
+        3: "نیروگاه بادی راه افتاد! 💨",
+        4: "بازدید ایمنی نیروگاه کامل شد! ⚛️",
+      };
+      set((st) => ({
+        coins: st.coins + 250,
+        neighborhood: Math.min(100, st.neighborhood + 14),
+        lastMissionReward: { coins: 250, xp: 300, title: titles[world] },
+        panel: "missionComplete",
+      }));
+      get().addXp(300);
+      get().save();
+    }
+  },
   tickTime: (dt) => set((s) => ({ time: (s.time + dt) % 1440 })),
   addCoins: (n, silent) => {
     set((s) => ({ coins: Math.max(0, s.coins + n) }));
@@ -517,6 +573,8 @@ export const useGame = create<GameState>((set, get) => ({
       lastMissionReward: null,
       inHouse: false,
       onRoof: false,
+      activeWorld: 1,
+      worldPads: [],
     });
   },
   save: () => {
@@ -532,6 +590,8 @@ export const useGame = create<GameState>((set, get) => ({
       scannerUnlocked: s.scannerUnlocked,
       neighborhood: s.neighborhood,
       worldCoinsCollected: s.worldCoinsCollected,
+      activeWorld: s.activeWorld,
+      worldPads: s.worldPads,
       hasSave: true,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -542,7 +602,7 @@ export const useGame = create<GameState>((set, get) => ({
     if (!raw) return false;
     try {
       const d = JSON.parse(raw) as SaveData;
-      set({ ...d, panel: null, dialog: null, scannerActive: false });
+      set({ ...d, panel: null, dialog: null, scannerActive: false, worldPads: d.worldPads ?? [], activeWorld: d.activeWorld ?? 1 });
       return true;
     } catch {
       return false;

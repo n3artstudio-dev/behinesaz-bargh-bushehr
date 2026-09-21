@@ -1,6 +1,8 @@
-import { houseConsumption, isPeak, levelFromXp, toFa, useGame, xpProgress } from "../game/store";
+import { houseConsumption, isPeak, isWorldUnlocked, levelFromXp, toFa, useGame, worldPadProgress, xpProgress } from "../game/store";
 import MapView from "./MapView";
+import { WORLD_INFO } from "../game/worlds";
 import { audio } from "../game/audio";
+import type { Engine } from "../game/Engine";
 
 export function MainMenu({ onNew, onContinue }: { onNew: () => void; onContinue: () => void }) {
   const hasSave = useGame((s) => s.hasSave);
@@ -97,11 +99,12 @@ function Frame({ title, icon, children, wide }: { title: string; icon: string; c
 }
 
 export function MapPanel() {
+  const region = useGame((s) => s.activeWorld);
   return (
-    <Frame title="نقشه محله — بوشهر" icon="🗺️" wide>
+    <Frame title={`نقشه — ${WORLD_INFO[region - 1].name}`} icon="🗺️" wide>
       <div className="flex flex-col md:flex-row gap-4 items-start">
         <div className="rounded-2xl overflow-hidden border-4 border-blue-200 shadow-inner mx-auto">
-          <MapView size={380} labels />
+          <MapView size={380} labels region={region} />
         </div>
         <div className="flex-1 text-sm space-y-2">
           <Legend c="#ff3ea5" t="محمد پارسا (تو)" />
@@ -153,7 +156,11 @@ export function MissionsPanel() {
             </ul>
           </div>
         ))}
-        <div className="rounded-2xl border-4 border-dashed border-blue-200 p-3 text-center text-sm opacity-70">جهان‌های بعدی: تهران، اصفهان، شیراز، یزد، رشت، بندرعباس... (به‌زودی)</div>
+        <div className="rounded-2xl border-4 border-dashed border-blue-200 p-3 text-center text-sm">
+          🌍 بعد از مأموریت اول، از دکمه «جهان‌ها» یا دروازه‌های رنگی وسط جاده برو به:
+          <b> شهر خورشیدی ☀️ ← منطقه انرژی بادی 💨 ← شهر انرژی پیشرفته ⚛️</b>
+          <div className="opacity-70 mt-1">شهرهای بعدی (تهران، اصفهان، شیراز، یزد، رشت...) در راهند.</div>
+        </div>
       </div>
     </Frame>
   );
@@ -387,6 +394,72 @@ export function HelpPanel() {
         </div>
       </div>
     </Frame>
+  );
+}
+
+export function WorldsPanel({ engine }: { engine: Engine | null }) {
+  const missions = useGame((s) => s.missions);
+  const worldPads = useGame((s) => s.worldPads);
+  const activeWorld = useGame((s) => s.activeWorld);
+  const setPanel = useGame((s) => s.setPanel);
+  return (
+    <div className="absolute inset-0 pointer-events-auto flex items-center justify-center bg-black/40 fade-in" dir="rtl">
+      <div className="ss-panel p-5 w-[min(96vw,820px)] pop-in max-h-[92vh] overflow-auto">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-2xl font-black flex items-center gap-2">
+            <span className="text-3xl">🌍</span>
+            جهان‌های انرژی ایران
+          </div>
+          <button className="ss-btn gray !px-3 !py-1.5 text-sm" onClick={() => { setPanel(null); audio.close(); }}>
+            بستن ✕
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {WORLD_INFO.map((info) => {
+            const unlocked = isWorldUnlocked(missions, worldPads, info.id);
+            const here = activeWorld === info.id;
+            const prog = info.id === 1 ? null : worldPadProgress(worldPads, info.id);
+            const done = info.id === 1 ? missions[0].state === "done" : prog ? prog.done === prog.total : false;
+            return (
+              <div key={info.id} className={`rounded-2xl border-4 p-4 ${here ? "border-yellow-300 bg-yellow-50" : unlocked ? "border-blue-200 bg-white" : "border-gray-200 bg-gray-100 opacity-80"}`}>
+                <div className="flex items-center gap-3">
+                  <div className="text-4xl">{unlocked ? info.icon : "🔒"}</div>
+                  <div className="flex-1">
+                    <div className="font-black">
+                      جهان {toFa(info.id)}: {info.name}
+                    </div>
+                    <div className="text-xs opacity-75">{info.desc}</div>
+                  </div>
+                </div>
+                {prog && (
+                  <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${(prog.done / prog.total) * 100}%`, background: info.color }} />
+                  </div>
+                )}
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs font-bold" style={{ color: info.color }}>
+                    {here ? "📍 همین‌جایی" : done ? "✅ کامل شده" : unlocked ? prog ? `${toFa(prog.done)} از ${toFa(prog.total)} مرحله` : "آماده" : "قفل — مأموریت قبلی را کامل کن"}
+                  </span>
+                  {unlocked && !here && (
+                    <button
+                      className="ss-btn blue !py-1.5 !px-4 text-sm"
+                      onClick={() => {
+                        engine?.travelWorld(info.id);
+                        setPanel(null);
+                        audio.click();
+                      }}
+                    >
+                      سفر 🚏
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 text-xs text-center opacity-70">می‌توانی به‌جای این پنل، با پای پیاده از دروازه‌های رنگی وسط جاده هم رد بشی.</div>
+      </div>
+    </div>
   );
 }
 

@@ -365,6 +365,11 @@ export function MissionComplete() {
               <div className="text-xs opacity-80">{next.desc}</div>
             </div>
           )}
+          {/اتمی|پیشرفته/.test(r.title) && (
+            <div className="mt-3 text-sm bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
+              🎉 تبریک محمد پارسا! هر چهار جهان انرژی کامل شد: خانه‌های هوشمند بوشهر، شهر خورشیدی، نیروگاه بادی و نیروگاه اتمی. حالا تو یک «یار برق» واقعی هستی و آیندهٔ روشن ایران با دست‌های تو ساخته می‌شود. 🇮🇷⚡
+            </div>
+          )}
           <button className="ss-btn mt-5" onClick={() => { clear(); audio.click(); }}>
             ادامه بازی ▶
           </button>

@@ -3,6 +3,8 @@ import { formatTime, houseConsumption, isPeak, levelFromXp, meterColor, toFa, us
 import MapView from "./MapView";
 import type { Engine } from "../game/Engine";
 import { audio } from "../game/audio";
+import { PAD_DEFS, WORLD_INFO } from "../game/worlds";
+import { worldPadProgress } from "../game/store";
 
 export default function HUD({ engine }: { engine: Engine | null }) {
   const coins = useGame((s) => s.coins);
@@ -26,6 +28,10 @@ export default function HUD({ engine }: { engine: Engine | null }) {
   const pct = Math.round((1 - cons.score) * 100);
   const active = missions.find((m) => m.state === "active");
   const nextObj = active?.objectives.find((o) => !o.done);
+  const activeWorld = useGame((s) => s.activeWorld);
+  const worldPads = useGame((s) => s.worldPads);
+  const wProg = activeWorld > 1 ? worldPadProgress(worldPads, activeWorld) : null;
+  const nextPad = activeWorld > 1 ? PAD_DEFS.filter((p) => p.world === activeWorld).find((p) => !worldPads.includes(p.id)) : null;
   const lv = levelFromXp(xp);
   const xpP = xpProgress(xp);
   const [coinPop, setCoinPop] = useState(false);
@@ -97,7 +103,7 @@ export default function HUD({ engine }: { engine: Engine | null }) {
       </div>
 
       {/* Mission objective */}
-      {active && (
+      {activeWorld === 1 && active && (
         <div className="absolute top-[118px] right-3 ss-dark px-4 py-2 max-w-[340px] fade-in">
           <div className="text-[11px] opacity-80">مأموریت {toFa(active.id)}: {active.title}</div>
           <div className="font-bold text-sm mt-0.5 flex items-start gap-2">
@@ -107,6 +113,22 @@ export default function HUD({ engine }: { engine: Engine | null }) {
           <div className="flex gap-1 mt-1.5">
             {active.objectives.map((o) => (
               <span key={o.id} className={`h-1.5 flex-1 rounded-full ${o.done ? "bg-green-400" : "bg-white/25"}`} />
+            ))}
+          </div>
+        </div>
+      )}
+      {activeWorld > 1 && nextPad && (
+        <div className="absolute top-[118px] right-3 ss-dark px-4 py-2 max-w-[340px] fade-in" style={{ borderColor: WORLD_INFO[activeWorld - 1].color }}>
+          <div className="text-[11px] opacity-80">
+            {WORLD_INFO[activeWorld - 1].icon} جهان {toFa(activeWorld)}: {WORLD_INFO[activeWorld - 1].name}
+          </div>
+          <div className="font-bold text-sm mt-0.5 flex items-start gap-2">
+            <span style={{ color: WORLD_INFO[activeWorld - 1].color }}>◆</span>
+            <span>{nextPad.label}</span>
+          </div>
+          <div className="flex gap-1 mt-1.5">
+            {Array.from({ length: wProg!.total }).map((_, i) => (
+              <span key={i} className={`h-1.5 flex-1 rounded-full ${i < wProg!.done ? "bg-green-400" : "bg-white/25"}`} />
             ))}
           </div>
         </div>
@@ -130,15 +152,16 @@ export default function HUD({ engine }: { engine: Engine | null }) {
       <div className="absolute bottom-3 left-3 ss-dark p-1.5 pointer-events-auto cursor-pointer" onClick={() => { setPanel("map"); audio.open(); }}>
         <div className="rounded-xl overflow-hidden" style={{ width: 150, height: 150 }}>
           <div style={{ transform: "translateY(-45px)" }}>
-            <MapView size={150} />
+            <MapView size={150} region={activeWorld} />
           </div>
         </div>
-        <div className="text-[10px] text-center mt-1 opacity-80">نقشه (M)</div>
+        <div className="text-[10px] text-center mt-1 opacity-80">{WORLD_INFO[activeWorld - 1].name.split("—")[0]} — نقشه (M)</div>
       </div>
 
       {/* Bottom-right menu buttons */}
       <div className="absolute bottom-3 right-3 flex gap-2 pointer-events-auto">
         {[
+          ["worlds", "🌍", "جهان‌ها"],
           ["missions", "⭐", "مأموریت‌ها"],
           ["inventory", "🎒", "فروشگاه"],
           ["stats", "📊", "آمار انرژی"],

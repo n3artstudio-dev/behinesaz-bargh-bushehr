@@ -3,7 +3,7 @@ import { Engine } from "./game/Engine";
 import { useGame } from "./game/store";
 import HUD from "./components/HUD";
 import { CinematicOverlay, HelpPanel, InventoryPanel, MainMenu, MapPanel, MissionsPanel, PauseMenu, SettingsPanel, StatsPanel, WorldsPanel } from "./components/Menus";
-import { DialogBox, MissionComplete, ScannerPanel, SolarPanelUI } from "./components/Panels";
+import { CryptoPanel, DialogBox, MissionComplete, ScannerPanel, SolarPanelUI } from "./components/Panels";
 import { audio } from "./game/audio";
 
 export default function App() {
@@ -90,6 +90,7 @@ export default function App() {
       {panel === "scanner" && <ScannerPanel />}
       {panel === "dialog" && <DialogBox />}
       {panel === "solar" && <SolarPanelUI />}
+      {panel === "crypto" && <CryptoPanel />}
       {panel === "missionComplete" && <MissionComplete />}
       {panel === "map" && <MapPanel />}
       {panel === "worlds" && <WorldsPanel engine={engine} />}

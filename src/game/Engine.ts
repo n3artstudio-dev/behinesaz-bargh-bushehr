@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { buildWorld, type AABB, type Interactable, type World } from "./world";
 import { Character, npcPreset } from "./characters";
-import { houseConsumption, isWorldUnlocked, isPeak, meterColor, sunFactor, useGame } from "./store";
+import { houseConsumption, isGliderUnlocked, isWorldUnlocked, isPeak, meterColor, sunFactor, useGame } from "./store";
 import { audio } from "./audio";
-import { buildExtraWorlds, WORLD_SPAWNS, type ExtraZones } from "./worlds";
+import { buildExtraWorlds, makeBicycle, makeMoped, WORLD_SPAWNS, type ExtraZones } from "./worlds";
 
 interface Npc {
   char: Character;
@@ -13,6 +13,16 @@ interface Npc {
   facing?: number;
   id: string;
   wait: number;
+}
+interface Vehicle {
+  g: THREE.Group;
+  speed: number;
+  dir: number;
+  x: number;
+  z0: number;
+  z1: number;
+  wheels: THREE.Object3D[];
+  lastDing: number;
 }
 
 // Characters walk slightly above the visual ground surfaces (sidewalks, promenade, etc.)
@@ -26,6 +36,77 @@ const P = new THREE.Vector3();
 const S1 = new THREE.Vector3(1, 1, 1);
 const S0 = new THREE.Vector3(0.001, 0.001, 0.001);
 
+/* سیستم ذرات جایزه (جرقه دور کاراکتر موقع سکه‌خوردن) */
+class ParticleBurst {
+  mesh: THREE.InstancedMesh;
+  private vel: Float32Array;
+  private pos: Float32Array;
+  private life: Float32Array;
+  private maxLife: Float32Array;
+  private cursor = 0;
+  private n: number;
+  private dummy = new THREE.Object3D();
+
+  constructor(scene: THREE.Scene, n = 180) {
+    this.n = n;
+    const geo = new THREE.OctahedronGeometry(0.075, 0);
+    const m = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    this.mesh = new THREE.InstancedMesh(geo, m, n);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.vel = new Float32Array(n * 3);
+    this.pos = new Float32Array(n * 3);
+    this.life = new Float32Array(n);
+    this.maxLife = new Float32Array(n);
+    const c = new THREE.Color("#ffd23a");
+    for (let i = 0; i < n; i++) {
+      this.mesh.setColorAt(i, c);
+      this.dummy.position.set(0, -999, 0);
+      this.dummy.scale.setScalar(0);
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.mesh.frustumCulled = false;
+    scene.add(this.mesh);
+  }
+
+  burst(origin: THREE.Vector3, count = 10, color = "#ffd23a") {
+    const c = new THREE.Color(color);
+    for (let k = 0; k < count; k++) {
+      const i = this.cursor;
+      this.cursor = (this.cursor + 1) % this.n;
+      this.pos[i * 3] = origin.x + (Math.random() - 0.5) * 0.6;
+      this.pos[i * 3 + 1] = origin.y + 0.8 + Math.random() * 0.5;
+      this.pos[i * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.6;
+      const a = Math.random() * Math.PI * 2;
+      const r = 1.4 + Math.random() * 2.8;
+      this.vel[i * 3] = Math.cos(a) * r;
+      this.vel[i * 3 + 1] = 2.2 + Math.random() * 3;
+      this.vel[i * 3 + 2] = Math.sin(a) * r;
+      this.life[i] = this.maxLife[i] = 0.7 + Math.random() * 0.6;
+      this.mesh.setColorAt(i, c);
+    }
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  update(dt: number) {
+    for (let i = 0; i < this.n; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt;
+      this.vel[i * 3 + 1] -= 9 * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt;
+      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
+      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const s = Math.max(0, this.life[i] / this.maxLife[i]);
+      this.dummy.position.set(this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]);
+      this.dummy.rotation.set(this.life[i] * 10, this.life[i] * 7, 0);
+      this.dummy.scale.setScalar(0.35 + s * 0.55);
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 export class Engine {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -35,6 +116,7 @@ export class Engine {
   zones!: ExtraZones;
   hero: Character;
   npcs: Npc[] = [];
+  vehicles: Vehicle[] = [];
   sun: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
   moon: THREE.PointLight;
@@ -61,6 +143,11 @@ export class Engine {
   posSyncT = 0;
   saveT = 0;
   touch = { x: 0, y: 0, run: false };
+  particles!: ParticleBurst;
+  glide: "none" | "up" | "fly" | "down" = "none";
+  glideStart = new THREE.Vector3();
+  glideTarget = 50;
+  gliderWasUnlocked = false;
   celebrated = false;
   peakAnnounced = false;
   prevSolar = 0;
@@ -111,6 +198,7 @@ export class Engine {
     this.world = buildWorld();
     this.scene.add(this.world.group);
     this.zones = buildExtraWorlds(this.world);
+    this.particles = new ParticleBurst(this.scene);
     // restore completed world pads from save
     for (const id of useGame.getState().worldPads) this.zones.setPad(id, true);
 
@@ -139,6 +227,23 @@ export class Engine {
       if (sp.facing !== undefined) c.root.rotation.y = sp.facing;
       this.scene.add(c.root);
       this.npcs.push({ char: c, path: sp.path, idx: 0, speed: sp.speed, facing: sp.facing, id: sp.id, wait: 0 });
+    });
+
+    // دوچرخه‌سوارها و موتورسوارها در خیابان
+    const bikeDefs: [number, number, number, number][] = [
+      [-2.7, 7.5, 1, 0],
+      [2.7, 7.0, -1, 120],
+      [-2.7, 11.5, 1, 260],
+      [2.7, 11.0, -1, 380],
+    ];
+    bikeDefs.forEach(([x, speed, dir, z0], i) => {
+      const isBike = i < 2;
+      const g = isBike ? makeBicycle(i === 0 ? "#1e88d6" : "#2f9e44", i === 0 ? "#f0b820" : "#e85d3a") : makeMoped(i === 2 ? "#c0392b" : "#2c3e80", i === 2 ? "#1e4f9a" : "#c0392b");
+      g.position.set(x, GROUND_Y, z0);
+      if (dir < 0) g.rotation.y = Math.PI;
+      this.scene.add(g);
+      const wheels = (g.userData.wheels as THREE.Mesh[]) ?? [];
+      this.vehicles.push({ g, speed, dir, x, z0: -30, z1: 610, wheels, lastDing: 0 });
     });
 
     this.prevSolar = useGame.getState().solarLevel;
@@ -177,6 +282,7 @@ export class Engine {
     }
     this.keys.add(k);
     if (k === "e") this.interact();
+    if (k === "f") this.toggleGlider();
     if (k === "q") {
       if (!st.scannerUnlocked) st.toast("اول باید مأموریت را از خانم فاطمه بگیری", "warn");
       else {
@@ -334,8 +440,29 @@ export class Engine {
           this.heading = Math.atan2(-d.x, -d.z);
         }
         const done1 = st.missions[0].objectives[0].done;
-        const lines = id === "fatemeh" && done1 ? (st.missions[0].state === "done" ? ["خیلی ممنون محمد پارسا! قبض برق ما نصف شد.", "حالا برو پشت‌بام و پنل خورشیدی رو نصب کن تا برق پاک تولید کنیم."] : ["برو داخل و با Q اسکنر رو روشن کن. مشکل‌ها رو پیدا کن!"]) : sp.lines;
-        st.openDialog({ speaker: sp.label, lines, index: 0, onEnd: id === "fatemeh" ? "talk" : undefined });
+        let lines = sp.lines;
+        let onEnd: string | undefined;
+        if (id === "fatemeh") {
+          onEnd = "talk";
+          lines = done1 ? (st.missions[0].state === "done" ? ["خیلی ممنون محمد پارسا! قبض برق ما نصف شد.", "حالا برو پشت‌بام و پنل خورشیدی رو نصب کن تا برق پاک تولید کنیم."] : ["برو داخل و با Q اسکنر رو روشن کن. مشکل‌ها رو پیدا کن!"]) : sp.lines;
+        }
+        if (id === "cryptoowner") {
+          if (!st.worldPads.includes("crypto_door")) {
+            lines = ["به ساختمان من کاری نداشته باش جوان!", "می‌گن دستگاه‌های تو شبانه‌روز روشنه؟ اول با اسکنرت درِ ویلا رو بررسی کن..."];
+          } else if (!st.worldPads.includes("crypto_owner")) {
+            onEnd = "cryptoowner";
+            lines = [
+              "آقا جان! اسکنر من ۴ دستگاه استخراج رمز ارز توی این ویلا پیدا کرده؛ هر کدوم حدود ۳ هزار وات!",
+              "می‌دونی در ساعت اوج مصرف داری به شبکه‌ی برق محله آسیب می‌زنی و قبض‌ها را بالا می‌بری؟",
+              "داشتن دستگاه رمز ارز بدون مجوز قانونی نیست و شرکت برق می‌تواند جریمه‌های سنگینی برایت بزند.",
+              "بیا درستش کنیم: دستگاه‌ها را با من جمع می‌کنیم و به‌جایش لامپ‌های کم‌مصرف محله را نصب می‌کنیم.",
+            ];
+          } else {
+            const left = [1, 2, 3, 4].filter((n) => !st.worldPads.includes(`miner_${n}`)).length;
+            lines = left > 0 ? [`هنوز ${left} دستگاه مانده؛ با E یکی‌یکی جمع‌شان کن.`] : ["آفرین! نگاه به تابلوی هوشمند محله بنداز؛ مصرف چقدر پایین آمد."];
+          }
+        }
+        st.openDialog({ speaker: sp.label, lines, index: 0, onEnd });
         break;
       }
       case "appliance": {
@@ -379,11 +506,17 @@ export class Engine {
         break;
       case "worldgate": {
         const n = parseInt(it.id.replace("gate_", ""), 10);
-        const gateZ = [108, 250, 392][n - 2];
+        const gateZ = [108, 250, 392, 536][n - 2];
         const goingForward = this.pos.z < gateZ;
         if (goingForward) {
           if (!isWorldUnlocked(st.missions, st.worldPads, n)) {
-            st.toast(n === 2 ? "اول مأموریت بوشهر را کامل کن" : n === 3 ? "اول مأموریت شهر خورشیدی را کامل کن" : "اول مأموریت انرژی بادی را کامل کن", "warn");
+            const lockMsg: Record<number, string> = {
+              2: "اول مأموریت بوشهر را کامل کن",
+              3: "اول مأموریت شهر خورشیدی را کامل کن",
+              4: "اول مأموریت انرژی بادی را کامل کن",
+              5: "اول بازدید نیروگاه اتمی را کامل کن",
+            };
+            st.toast(lockMsg[n] ?? "اول مأموریت قبلی را کامل کن", "warn");
             audio.warn();
           } else this.travelWorld(n);
         } else {
@@ -396,11 +529,37 @@ export class Engine {
           st.toast("این مرحله قبلاً انجام شده ✓", "info");
           break;
         }
+        // گیتینگ مرحله رمز ارز
+        if (it.id.startsWith("miner_")) {
+          if (!st.worldPads.includes("crypto_owner")) {
+            st.toast("اول باید به صاحب‌خانه اخطار بدهی", "warn");
+            audio.warn();
+            break;
+          }
+        }
+        if (it.id.startsWith("led_")) {
+          const minersAll = [1, 2, 3, 4].every((n) => st.worldPads.includes(`miner_${n}`));
+          if (!minersAll) {
+            st.toast("اول هر ۴ دستگاه غیرمجاز را جمع کن", "warn");
+            audio.warn();
+            break;
+          }
+        }
+        if (it.id === "crypto_door") {
+          st.completePad(it.id);
+          this.zones.setPad(it.id, true);
+          st.setPanel("crypto");
+          audio.scan();
+          this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1.5, 0)), 20, "#ff5a4d");
+          break;
+        }
         st.completePad(it.id);
         this.zones.setPad(it.id, true);
+        const col = it.id.startsWith("led_") ? "#2fd04a" : it.id.startsWith("miner_") ? "#ff5a4d" : "#ffd23a";
+        this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 22, col);
         audio.zap();
         setTimeout(() => audio.success(), 250);
-        if (st.worldPads.length && st.worldPads.filter((p) => p.slice(0, 5) === it.id.slice(0, 5)).length === 3) this.hero.celebrate();
+        if (it.id === "crypto_owner") this.hero.celebrate();
         break;
       }
     }
@@ -413,6 +572,11 @@ export class Engine {
   travelWorld(n: number) {
     const sp = WORLD_SPAWNS[n];
     if (!sp) return;
+    if (this.glide !== "none") {
+      this.glide = "none";
+      this.hero.setGlider(false);
+      useGame.getState().setGliding(false);
+    }
     this.pos.set(sp.x, sp.y, sp.z);
     this.vel.set(0, 0, 0);
     this.vy = 0;
@@ -423,16 +587,40 @@ export class Engine {
     st.setActiveWorld(n);
     st.setOnRoof(false);
     st.setInHouse(false);
-    st.toast(n === 1 ? "بازگشت به بوشهر" : n === 2 ? "به شهر خورشیدی خوش آمدی ☀️" : n === 3 ? "به منطقه انرژی بادی خوش آمدی 💨" : "به شهر انرژی پیشرفته خوش آمدی ⚛️", "info");
+    st.toast(n === 1 ? "بازگشت به بوشهر" : n === 2 ? "به شهر خورشیدی خوش آمدی ☀️" : n === 3 ? "به منطقه انرژی بادی خوش آمدی 💨" : n === 4 ? "به شهر انرژی پیشرفته خوش آمدی ⚛️" : "به محله تابلوی هوشمند خوش آمدی 🪧", "info");
     audio.open();
     this.updateCamera(1, true);
   }
 
   private jump() {
-    if (this.grounded && this.mode === "play") {
+    if (this.grounded && this.mode === "play" && this.glide === "none") {
       this.vy = 6.2;
       this.grounded = false;
       audio.jump();
+    }
+  }
+
+  toggleGlider() {
+    const st = useGame.getState();
+    if (st.phase !== "playing" || st.panel) return;
+    if (st.onRoof || st.inHouse) {
+      st.toast("چتر فقط در فضای باز کار می‌کند", "warn");
+      return;
+    }
+    if (this.glide === "none") {
+      if (!isGliderUnlocked(st.worldPads)) {
+        st.toast("چتر پرواز بعد از کامل‌کردن منطقه انرژی بادی باز می‌شود 💨", "warn");
+        return;
+      }
+      this.glide = "up";
+      this.glideStart.copy(this.pos);
+      this.hero.setGlider(true);
+      st.setGliding(true);
+      audio.jump();
+      st.toast("چتر باز شد! با WASD پرواز کن، دوباره F بزن تا سر جایت فرود بیایی", "info");
+    } else if (this.glide === "up" || this.glide === "fly") {
+      this.glide = "down";
+      st.toast("در حال فرود سر جای اول...", "info");
     }
   }
 
@@ -475,7 +663,7 @@ export class Engine {
     }
     // world bounds
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -60, 60);
-    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -44, 545);
+    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -44, 615);
   }
 
   private inAABB(b: AABB, x: number, z: number) {
@@ -544,9 +732,10 @@ export class Engine {
       if (this.gpJustPressed(9)) { st.setPhase("paused"); document.exitPointerLock?.(); }
       // Back = missions
       if (this.gpJustPressed(8)) { st.setPanel("missions"); audio.open(); }
-      // LB = run (sprint)
+      // LB = run (sprint), RB = glider
       if (this.gpDown(4)) this.keys.add("shift");
       else this.keys.delete("shift");
+      if (this.gpJustPressed(5)) this.toggleGlider();
       // right stick = camera
       if (this.gpAxes[2] !== 0) this.yaw -= this.gpAxes[2] * dt * 3.5;
       if (this.gpAxes[3] !== 0) this.pitch = THREE.MathUtils.clamp(this.pitch + this.gpAxes[3] * dt * 2.5, -0.35, 1.1);
@@ -558,7 +747,8 @@ export class Engine {
       iz /= len;
     }
     this.running = !locked && (this.keys.has("shift") || this.touch.run);
-    const maxSpeed = this.running ? 6.4 : 3.4;
+    const gliding = this.glide !== "none";
+    const maxSpeed = gliding ? 13 : this.running ? 9.5 : 4.8;
     // forward = camera look direction toward player
     const fx = -Math.sin(this.yaw),
       fz = -Math.cos(this.yaw);
@@ -567,21 +757,57 @@ export class Engine {
       rz = -Math.sin(this.yaw);
     const tx = (fx * iz + rx * ix) * maxSpeed;
     const tz = (fz * iz + rz * ix) * maxSpeed;
-    const accel = len > 0 ? 14 : 10;
+    const accel = len > 0 ? 17 : 13;
     this.vel.x += (tx - this.vel.x) * Math.min(1, dt * accel);
     this.vel.z += (tz - this.vel.z) * Math.min(1, dt * accel);
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
-    // gravity
-    const groundY = st.onRoof ? this.world.roofY : GROUND_Y;
-    this.vy -= 16 * dt;
-    this.pos.y += this.vy * dt;
-    if (this.pos.y <= groundY) {
-      this.pos.y = groundY;
-      this.vy = 0;
-      this.grounded = true;
-    } else this.grounded = false;
-    this.resolveCollisions();
+    // ---- پرواز با چتر ----
+    if (gliding) {
+      const glideAlt = this.glideStart.y + this.glideTarget;
+      if (this.glide === "up") {
+        this.pos.y += dt * 13;
+        if (this.pos.y >= glideAlt) {
+          this.pos.y = glideAlt;
+          this.glide = "fly";
+          this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1, 0)), 18, "#7fd0ff");
+        }
+      } else if (this.glide === "fly") {
+        this.pos.y = glideAlt + Math.sin(this.sinceStart * 1.4) * 0.6;
+        this.grounded = false;
+      } else if (this.glide === "down") {
+        // فرود در همین مکانی که پرواز می‌کند
+        this.pos.y -= dt * 14;
+        const landY = st.onRoof ? this.world.roofY : GROUND_Y;
+        if (this.pos.y <= landY) {
+          this.pos.y = landY;
+          this.glide = "none";
+          this.hero.setGlider(false);
+          this.grounded = true;
+          this.vy = 0;
+          useGame.getState().setGliding(false);
+          audio.switchClick();
+          this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 0.4, 0)), 20, "#ffd23a");
+          this.resolveCollisions();
+          this.pushOutOfPeople();
+        }
+      }
+      // مرزهای هوایی
+      this.pos.x = THREE.MathUtils.clamp(this.pos.x, -55, 55);
+      this.pos.z = THREE.MathUtils.clamp(this.pos.z, -44, 615);
+    } else {
+      // gravity
+      const groundY = st.onRoof ? this.world.roofY : GROUND_Y;
+      this.vy -= 16 * dt;
+      this.pos.y += this.vy * dt;
+      if (this.pos.y <= groundY) {
+        this.pos.y = groundY;
+        this.vy = 0;
+        this.grounded = true;
+      } else this.grounded = false;
+      this.resolveCollisions();
+      this.pushOutOfPeople();
+    }
     // heading
     const sp = Math.hypot(this.vel.x, this.vel.z);
     if (sp > 0.3) {
@@ -593,8 +819,8 @@ export class Engine {
     }
     this.hero.root.position.copy(this.pos);
     this.hero.root.rotation.y = this.heading;
-    this.hero.update(dt, Math.min(1, sp / 6.4), !this.grounded, this.sinceStart);
-    if (this.grounded && sp > 0.8) audio.footstep(this.running);
+    this.hero.update(dt, Math.min(1, sp / 5.5), !this.grounded, this.sinceStart, gliding);
+    if (this.grounded && sp > 0.8 && !gliding) audio.footstep(this.running);
 
     // house / prompt
     const inHouse = !st.onRoof && this.inAABB(this.world.houseInterior, this.pos.x, this.pos.z);
@@ -602,18 +828,20 @@ export class Engine {
     // nearest interactable
     let best: Interactable | null = null;
     let bestD = 1e9;
-    for (const it of this.world.interactables) {
-      if (!!it.roofOnly !== st.onRoof) continue;
-      if (it.kind === "appliance" && !inHouse) continue;
-      const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
-      if (d < it.radius && d < bestD) {
-        best = it;
-        bestD = d;
+    if (!gliding) {
+      for (const it of this.world.interactables) {
+        if (!!it.roofOnly !== st.onRoof) continue;
+        if (it.kind === "appliance" && !inHouse) continue;
+        const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
+        if (d < it.radius && d < bestD) {
+          best = it;
+          bestD = d;
+        }
       }
     }
     this.nearest = best;
     let prompt: string | null = null;
-    if (best && !locked) {
+    if (best && !locked && !gliding) {
       if (best.kind === "appliance") prompt = st.scannerActive ? `اسکن ${best.label}` : st.scannerUnlocked ? `اسکنر را فعال کن (Q)` : best.label;
       else prompt = best.label;
     }
@@ -626,6 +854,9 @@ export class Engine {
       if (dy > -0.5 && dy < 2.2 && Math.hypot(c.x - this.pos.x, c.z - this.pos.z) < 0.95) {
         st.collectWorldCoin(i);
         audio.coin();
+        this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1, 0)), 14, "#ffd23a");
+        // چند جرقه سفردریایی
+        this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 6, "#fff3b0");
       }
     });
     audio.setSeaDistance(Math.max(0, this.pos.z + 18));
@@ -634,7 +865,7 @@ export class Engine {
   /* ---------------- camera ---------------- */
   private updateCamera(dt: number, snap = false) {
     const st = useGame.getState();
-    const targetDist = st.inHouse ? 3.4 : st.panel === "scanner" ? 3.0 : 5.6 + (this.running ? 0.8 : 0);
+    const targetDist = this.glide !== "none" ? 9 : st.inHouse ? 3.4 : st.panel === "scanner" ? 3.0 : 5.6 + (this.running ? 0.8 : 0);
     this.camDist += (targetDist - this.camDist) * Math.min(1, dt * 4);
     const look = tmpV.set(this.pos.x, this.pos.y + 1.15, this.pos.z);
     const cp = tmpV2.set(look.x + Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist, look.y + Math.sin(this.pitch) * this.camDist + 0.4, look.z + Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist);
@@ -645,7 +876,8 @@ export class Engine {
       cp.z = THREE.MathUtils.clamp(cp.z, b.minZ + 0.4, b.maxZ - 0.4);
       cp.y = Math.min(cp.y, 3.5);
     }
-    cp.y = Math.max(cp.y, (st.onRoof ? this.world.roofY : GROUND_Y) + 0.5);
+    if (this.glide !== "none") cp.y = Math.max(cp.y, this.pos.y + 0.5);
+    else cp.y = Math.max(cp.y, (st.onRoof ? this.world.roofY : GROUND_Y) + 0.5);
     // avoid camera penetrating building colliders (outdoor)
     if (!st.inHouse && !st.onRoof) {
       for (const c of this.world.colliders) {
@@ -666,7 +898,7 @@ export class Engine {
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
     // subtle run FOV kick
-    const fovT = this.running && Math.hypot(this.vel.x, this.vel.z) > 4 ? 66 : 60;
+    const fovT = this.glide !== "none" ? 72 : this.running && Math.hypot(this.vel.x, this.vel.z) > 4 ? 66 : 60;
     this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * 4);
     this.camera.updateProjectionMatrix();
   }
@@ -717,7 +949,7 @@ export class Engine {
           while (dh > Math.PI) dh -= Math.PI * 2;
           while (dh < -Math.PI) dh += Math.PI * 2;
           c.root.rotation.y += dh * Math.min(1, dt * 6);
-          speedNorm = n.speed / 6.4;
+          speedNorm = Math.min(1, n.speed / 2.8);
         }
       } else {
         // stationary: look at the player when near
@@ -737,6 +969,48 @@ export class Engine {
         }
       }
       c.update(dt, speedNorm, false, this.sinceStart);
+      // موقعیت نقطه تعامل NPC همراهش حرکت کند
+      const it = this.world.interactables.find((x) => x.id === `npc_${n.id}`);
+      if (it) it.pos.set(c.root.position.x, c.root.position.y, c.root.position.z);
+    }
+    // وسایل نقلیه در خیابان
+    for (const v of this.vehicles) {
+      v.g.position.z += v.speed * v.dir * dt;
+      if (v.dir > 0 && v.g.position.z > v.z1) v.g.position.z = v.z0;
+      if (v.dir < 0 && v.g.position.z < v.z0) v.g.position.z = v.z1;
+      const spin = (v.speed * v.dir * dt) / 0.42;
+      for (const w of v.wheels) w.rotation.z -= spin;
+      const rider = v.g.getObjectByName("rider");
+      if (rider) rider.position.y = Math.abs(Math.sin(this.sinceStart * 9 + v.x)) * 0.03;
+      // برخورد با بازیکن
+      if (this.glide === "none") {
+        const dx = this.pos.x - v.g.position.x;
+        const dz = this.pos.z - v.g.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 1.0 && d > 0.001) {
+          this.pos.x += (dx / d) * (1.0 - d);
+          this.pos.z += (dz / d) * (1.0 - d);
+          if (this.sinceStart - v.lastDing > 1.5) {
+            v.lastDing = this.sinceStart;
+            audio.click();
+          }
+        }
+      }
+    }
+  }
+
+  /* بازیکن نباید از بدن مردم رد شود */
+  private pushOutOfPeople() {
+    for (const n of this.npcs) {
+      const p = n.char.root.position;
+      const dx = this.pos.x - p.x;
+      const dz = this.pos.z - p.z;
+      const d = Math.hypot(dx, dz);
+      const r = n.char.opts.kind === "hero" || n.char.opts.kind === "boy" || n.char.opts.kind === "girl" ? 0.45 : 0.55;
+      if (d < r && d > 0.001) {
+        this.pos.x += (dx / d) * (r - d);
+        this.pos.z += (dz / d) * (r - d);
+      }
     }
   }
 
@@ -891,8 +1165,15 @@ export class Engine {
     sm.emissiveIntensity = 0.6 + Math.sin(t * 6) * 0.2;
     // scanner in hand
     this.hero.setScannerVisible(st.scannerActive);
-    // extra worlds (solar city, wind, nuclear) animations
-    this.zones.update(dt, t, st.activeWorld);
+    // extra worlds (solar city, wind, nuclear, crypto) animations
+    this.zones.update(dt, t, st.activeWorld, st.worldPads);
+    // unlock glider after wind world
+    const gliderNow = isGliderUnlocked(st.worldPads);
+    if (gliderNow && !this.gliderWasUnlocked) {
+      st.toast("🎁 جایزه! چتر پرواز باز شد — با F به ارتفاع ۵۰ متر پرواز کن", "success");
+      audio.fanfare();
+    }
+    this.gliderWasUnlocked = gliderNow;
     // peak announcement
     if (isPeak(time) && !this.peakAnnounced && st.phase === "playing") {
       this.peakAnnounced = true;
@@ -925,6 +1206,7 @@ export class Engine {
       document.exitPointerLock?.();
       this.keys.clear();
     }
+    this.particles.update(dt);
     if (this.mode === "cinematic") {
       this.updateCinematic(dt);
       this.updateNpcs(dt);

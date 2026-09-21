@@ -114,31 +114,31 @@ export function buildWorld(): World {
   // Promenade (cobble) along the coast
   const prom = new THREE.Mesh(new THREE.PlaneGeometry(160, 10), new THREE.MeshStandardMaterial({ map: cobbleTex([40, 3]), roughness: 0.95 }));
   prom.rotation.x = -Math.PI / 2;
-  prom.position.set(0, -0.01, -13);
+  prom.position.set(0, 0.03, -13);
   prom.receiveShadow = true;
   group.add(prom);
 
   // Main street (asphalt) + sidewalks
   const street = new THREE.Mesh(new THREE.PlaneGeometry(8, 80), new THREE.MeshStandardMaterial({ map: asphaltTex([2, 20]), roughness: 0.95 }));
   street.rotation.x = -Math.PI / 2;
-  street.position.set(0, -0.005, 32);
+  street.position.set(0, 0.05, 32);
   street.receiveShadow = true;
   group.add(street);
   // lane markings
   for (let z = -6; z < 70; z += 4) {
-    const dash = box(0.15, 0.01, 1.8, mat("#f4f0dc", 0.8), 0, 0.045, z, false);
+    const dash = box(0.15, 0.01, 1.8, mat("#f4f0dc", 0.8), 0, 0.075, z, false);
     group.add(dash);
   }
   const sideM = new THREE.MeshStandardMaterial({ map: cobbleTex([1.5, 20]), roughness: 0.95 });
   for (const sx of [-5.5, 5.5]) {
-    const sw = box(3, 0.06, 80, sideM, sx, -0.01, 32);
+    const sw = box(3, 0.08, 80, sideM, sx, 0.08, 32);
     sw.castShadow = false;
     group.add(sw);
   }
   // Square (circular plaza)
   const plaza = new THREE.Mesh(new THREE.CircleGeometry(13, 40), new THREE.MeshStandardMaterial({ map: cobbleTex([10, 10]), roughness: 0.95 }));
   plaza.rotation.x = -Math.PI / 2;
-  plaza.position.set(0, -0.005, 48);
+  plaza.position.set(0, 0.1, 48);
   plaza.receiveShadow = true;
   group.add(plaza);
   // fountain
@@ -429,8 +429,8 @@ export function buildWorld(): World {
     {
       id: "fatemeh",
       kind: "woman",
-      path: [V3(-7.2, 0, 12.5)],
-      speed: 0,
+      path: [V3(-7.6, 0, 13.8), V3(-6.4, 0, 11.6), V3(-8.2, 0, 11.4), V3(-7.0, 0, 13.6)],
+      speed: 0.9,
       facing: Math.PI / 2,
       label: "خانم فاطمه",
       lines: [
@@ -453,15 +453,15 @@ export function buildWorld(): World {
       id: "fisherman",
       kind: "fisherman",
       path: [V3(8, 0.1, -38.5), V3(8, 0.1, -24)],
-      speed: 0.5,
+      speed: 1.2,
       label: "ننه‌خدا، صیاد",
       lines: ["دریا امروز آرومه، نسیم خوبی می‌آد.", "قدیم‌ها بابام می‌گفت خونه‌های شناشیر خودشون خنک بودن؛ کولر لازم نداشتن!"],
     },
     {
       id: "electrician",
       kind: "electrician",
-      path: [V3(5.2, 0, 31)],
-      speed: 0,
+      path: [V3(5.4, 0, 26), V3(4.2, 0, 36), V3(5.6, 0, 36), V3(4.4, 0, 26)],
+      speed: 1.2,
       facing: Math.PI,
       label: "مهندس کریمی، تکنسین برق",
       lines: ["توی ساعت اوج مصرف، شبکه‌ی برق زیر فشاره.", "اگه هر خونه فقط یه کولر رو روی ۲۵ درجه بذاره، خاموشی نداریم!"],
@@ -470,7 +470,7 @@ export function buildWorld(): World {
       id: "boy",
       kind: "boy",
       path: [V3(-6, 0, 42), V3(6, 0, 40), V3(7, 0, 56), V3(-6, 0, 55)],
-      speed: 1.6,
+      speed: 2.4,
       label: "علی",
       lines: ["کلاهت خیلی باحاله! منم می‌خوام یار برق بشم!"],
     },
@@ -478,7 +478,7 @@ export function buildWorld(): World {
       id: "girl",
       kind: "girl",
       path: [V3(5, 0, 55), V3(-7, 0, 54), V3(-5, 0, 41), V3(6, 0, 42)],
-      speed: 1.4,
+      speed: 2.1,
       label: "زهرا",
       lines: ["مامانم می‌گه لامپ‌های LED خونه‌مون رو تو عوض کردی!", "ما هم چراغ اتاق رو موقع بیرون رفتن خاموش می‌کنیم."],
     },
@@ -486,7 +486,7 @@ export function buildWorld(): World {
       id: "elder_man",
       kind: "elder_man",
       path: [V3(5.5, 0, 12), V3(5.5, 0, 34), V3(5.5, 0, 12)],
-      speed: 0.7,
+      speed: 1.05,
       label: "حاج عباس",
       lines: ["پسرم، قدیم‌ها بوشهر برق نداشت؛ حالا باید قدرشو بدونیم.", "روی این بادگیر و شناشیرها دقت کن؛ معماری قدیم خودش هوشمند بود."],
     },
@@ -494,7 +494,7 @@ export function buildWorld(): World {
       id: "mother",
       kind: "woman",
       path: [V3(-5.5, 0, -12), V3(20, 0, -12), V3(-5.5, 0, -12)],
-      speed: 1.1,
+      speed: 1.7,
       label: "خانم رضایی",
       lines: ["امروز خلیج فارس چه رنگی شده!", "بچه‌ها رو آوردم ساحل تا کولر خونه خاموش باشه؛ صرفه‌جویی هم هست."],
     },
@@ -502,9 +502,25 @@ export function buildWorld(): World {
       id: "teacher",
       kind: "teacher",
       path: [V3(-3, 0, 26), V3(-3, 0, 60), V3(-3, 0, 26)],
-      speed: 1.0,
+      speed: 1.5,
       label: "خانم معلم",
       lines: ["برچسب انرژی A++ یعنی کمترین مصرف. توی مدرسه بهشون یاد دادم.", "امتیاز محله‌مون داره بالا می‌ره؛ آفرین یار برق!"],
+    },
+    {
+      id: "worker",
+      kind: "man",
+      path: [V3(3.4, 0, 62), V3(3.4, 0, 8), V3(3.4, 0, 62)],
+      speed: 2.0,
+      label: "کارگر شهرداری",
+      lines: ["دارم چراغ‌های خیابون رو با LED عوض می‌کنم؛ برق کمتر، نور بیشتر!", "توربین‌های بادی اون بالا رو دیدی؟ با باد برق می‌سازن!"],
+    },
+    {
+      id: "girl2",
+      kind: "girl",
+      path: [V3(-30, 0, -14), V3(2, 0, -14), V3(2, 0, -10), V3(-30, 0, -10), V3(-30, 0, -14)],
+      speed: 1.9,
+      label: "مریم",
+      lines: ["دارم می‌رم خرید؛ مامان گفت کولر رو روی ۲۵ درجه بذاریم!", "توی ساعت اوج مصرف همه باید همکاری کنیم."],
     },
   );
   for (const n of npcSpawns) {
@@ -590,8 +606,12 @@ function buildMissionHouse(
   const H2 = 7.5; // roof slab
   const t = 0.5;
   const inner = new THREE.MeshStandardMaterial({ map: plasterTex("#f3ecdd", [3, 1.5], 8), roughness: 0.9 });
-  // stone plinth
-  h.add(box(x1 - x0 + 0.2, 0.9, z1 - z0 + 0.2, M.stoneM, cx, 0.45, cz));
+  // stone plinth — فقط نوارهای پیرامونی (داخل خانه خالی بماند تا زمین تو نرود)
+  h.add(box(x1 - x0 + 0.2, 0.9, t + 0.1, M.stoneM, cx, 0.45, z0 + t / 2));
+  h.add(box(x1 - x0 + 0.2, 0.9, t + 0.1, M.stoneM, cx, 0.45, z1 - t / 2));
+  h.add(box(t + 0.1, 0.9, z1 - z0, M.stoneM, x0 + t / 2, 0.45, cz));
+  h.add(box(t, 0.9, 15.2 - z0, M.stoneM, x1 - t / 2, 0.45, (z0 + 15.2) / 2));
+  h.add(box(t, 0.9, z1 - 16.8, M.stoneM, x1 - t / 2, 0.45, (16.8 + z1) / 2));
   // walls (outer)
   const wallN = box(x1 - x0, H2, t, M.plasterM, cx, H2 / 2, z0 + t / 2);
   const wallS = box(x1 - x0, H2, t, M.plasterM, cx, H2 / 2, z1 - t / 2);
@@ -636,7 +656,7 @@ function buildMissionHouse(
   // floor (Bushehri tiles) and ceiling (wooden beams)
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 - 2 * t, z1 - z0 - 2 * t), new THREE.MeshStandardMaterial({ map: tileFloorTex([5, 4]), roughness: 0.6 }));
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(cx, 0.02, cz);
+  floor.position.set(cx, 0.08, cz);
   floor.receiveShadow = true;
   h.add(floor);
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 - 2 * t, z1 - z0 - 2 * t), new THREE.MeshStandardMaterial({ map: woodTex("#9a6a3c", [6, 1]), roughness: 0.85 }));
@@ -792,7 +812,7 @@ function buildMissionHouse(
   /* ---------- Interior ---------- */
   const rug = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 3.6), new THREE.MeshStandardMaterial({ map: rugTex(), roughness: 0.9 }));
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(-16.5, 0.03, 15.5);
+  rug.position.set(-16.5, 0.09, 15.5);
   rug.receiveShadow = true;
   h.add(rug);
   // sofa

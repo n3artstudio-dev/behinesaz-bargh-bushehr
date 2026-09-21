@@ -41,6 +41,7 @@ export class Character {
   mouth!: THREE.Mesh;
   scanner?: THREE.Group;
   cap?: THREE.Group;
+  glider?: THREE.Group;
   torsoMesh!: THREE.Mesh;
   phase = 0;
   blinkT = 2 + Math.random() * 3;
@@ -314,6 +315,42 @@ export class Character {
     if (o.kind === "girl" && !o.scarf) {
       // young girl: colourful scarf already handled by default color
     }
+
+    // پاراگلایدر / چتر پرواز (پاداش جهان بادی) — جمع‌شده، موقع پرواز باز می‌شود
+    const glider = new THREE.Group();
+    const canopyGeo = new THREE.SphereGeometry(1.0, 22, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+    const canopy = new THREE.Mesh(canopyGeo, mat("#f0b820", 0.6));
+    canopy.scale.set(1.7, 1.05, 1.15);
+    canopy.position.y = 0;
+    canopy.castShadow = true;
+    glider.add(canopy);
+    // نوارهای آبی روی چتر
+    for (let i = -2; i <= 2; i++) {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 1.5), mat("#1e4f9a", 0.6));
+      stripe.position.set(i * 0.55, -0.05, 0);
+      stripe.rotation.y = Math.abs(i) * 0.28;
+      glider.add(stripe);
+    }
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 8, 28), mat("#1e4f9a", 0.5));
+    rim.rotation.x = Math.PI / 2;
+    rim.scale.set(1.7, 1.15, 1);
+    rim.position.y = -0.02;
+    glider.add(rim);
+    // بندها تا دست‌ها
+    const ropeMat = mat("#cfd6df", 0.8);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.5, 5), ropeMat);
+        rope.position.set(sx * 1.15, -0.8, sz * 0.55);
+        rope.rotation.z = -sx * 0.5;
+        glider.add(rope);
+      }
+    }
+    glider.position.y = 2.65;
+    glider.visible = false;
+    this.glider = glider;
+    this.body.add(glider);
+
     this.body.add(this.head);
   }
 
@@ -321,18 +358,22 @@ export class Character {
     if (this.scanner) this.scanner.visible = v;
   }
 
+  setGlider(v: boolean) {
+    if (this.glider) this.glider.visible = v;
+  }
+
   celebrate() {
     this.celebrateT = 2.4;
   }
 
-  update(dt: number, speedNorm: number, airborne: boolean, time: number) {
+  update(dt: number, speedNorm: number, airborne: boolean, time: number, gliding = false) {
     // speedNorm: 0 idle .. 1 run
     this.moveFactor += (speedNorm - this.moveFactor) * Math.min(1, dt * 10);
     this.jumpFactor += ((airborne ? 1 : 0) - this.jumpFactor) * Math.min(1, dt * 12);
-    this.phase += dt * (6 + speedNorm * 9) * Math.max(0.15, speedNorm);
+    this.phase += dt * (7 + speedNorm * 12) * Math.max(0.25, speedNorm);
     this.idleT += dt;
     const mf = this.moveFactor;
-    const swing = Math.sin(this.phase) * 0.9 * mf;
+    const swing = Math.sin(this.phase) * 1.05 * mf;
     const lean = mf * 0.18;
 
     this.legL.rotation.x = swing * (1 - this.jumpFactor) + this.jumpFactor * -0.6;
@@ -346,6 +387,18 @@ export class Character {
     if (this.scanner?.visible) {
       this.armR.rotation.x = -1.35;
       this.armR.rotation.z = -0.25;
+    }
+    if (gliding) {
+      // دست‌ها به بندهای چتر و پاها کمی جمع
+      this.armL.rotation.set(-2.1, 0, 0.55);
+      this.armR.rotation.set(-2.1, 0, -0.55);
+      this.legL.rotation.x = 0.25;
+      this.legR.rotation.x = -0.15;
+      this.body.rotation.x = 0.28;
+      if (this.glider) {
+        this.glider.rotation.z = Math.sin(this.idleT * 1.6) * 0.07;
+        this.glider.rotation.x = Math.sin(this.idleT * 1.1) * 0.04;
+      }
     }
 
     if (this.celebrateT > 0) {
@@ -363,9 +416,9 @@ export class Character {
       this.body.rotation.y = 0;
       this.mouth.scale.setScalar(1);
     }
-    this.body.rotation.x = lean;
+    this.body.rotation.x = gliding ? 0.28 : lean;
     this.torsoMesh.scale.set(1, 1 + Math.sin(this.idleT * 2.2) * 0.015, 1);
-    this.head.rotation.x = -lean * 0.6 + Math.sin(this.idleT * 0.9) * 0.03;
+    this.head.rotation.x = (gliding ? -0.15 : -lean * 0.6) + Math.sin(this.idleT * 0.9) * 0.03;
     this.head.rotation.y = Math.sin(this.idleT * 0.6) * 0.08 * (1 - mf);
 
     // blinking

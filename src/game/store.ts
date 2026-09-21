@@ -14,6 +14,7 @@ export type Panel =
   | "missionComplete"
   | "solar"
   | "worlds"
+  | "crypto"
   | "help";
 
 export type ApplianceType = "bulb" | "fridge" | "ac" | "tv" | "light";
@@ -115,6 +116,8 @@ export interface GameState extends SaveData {
   setOnRoof: (v: boolean) => void;
   activeWorld: number;
   worldPads: string[];
+  gliding: boolean;
+  setGliding: (v: boolean) => void;
   setActiveWorld: (n: number) => void;
   completePad: (id: string) => void;
   tickTime: (dtMin: number) => void;
@@ -142,21 +145,29 @@ export interface GameState extends SaveData {
 
 const SAVE_KEY = "behinesaz-bushehr-save-v1";
 
+import { PAD_DEFS } from "./worlds";
+
 export function isWorldUnlocked(
   missions: Mission[],
   worldPads: string[],
   n: number,
 ) {
   if (n <= 1) return true;
+  const reqs: Record<number, string[]> = {
+    2: [], // after Bushehr mission
+    3: ["solar_a", "solar_b", "solar_c"],
+    4: ["wind_a", "wind_b", "wind_c"],
+    5: ["plant_control", "plant_cooling", "plant_dome"],
+  };
   if (n === 2) return missions[0]?.state === "done";
-  if (n === 3) return ["solar_a", "solar_b", "solar_c"].every((p) => worldPads.includes(p));
-  if (n === 4) return ["wind_a", "wind_b", "wind_c"].every((p) => worldPads.includes(p));
-  return false;
+  return (reqs[n] ?? []).every((p) => worldPads.includes(p));
 }
 export function worldPadProgress(worldPads: string[], world: number) {
-  const pre = world === 2 ? "solar" : world === 3 ? "wind" : "plant";
-  const done = worldPads.filter((p) => p.startsWith(pre)).length;
-  return { done, total: 3 };
+  const ids = PAD_DEFS.filter((p) => p.world === world).map((p) => p.id);
+  return { done: ids.filter((i) => worldPads.includes(i)).length, total: ids.length };
+}
+export function isGliderUnlocked(worldPads: string[]) {
+  return ["wind_a", "wind_b", "wind_c"].every((p) => worldPads.includes(p));
 }
 
 export const LEVEL_XP = [0, 200, 500, 900, 1400, 2000, 2800];
@@ -361,6 +372,8 @@ export const useGame = create<GameState>((set, get) => ({
   levelUpFlash: 0,
   activeWorld: 1,
   worldPads: [],
+  gliding: false,
+  setGliding: (gliding) => set({ gliding }),
 
   setPhase: (phase) => set({ phase }),
   setPanel: (panel) => set({ panel }),
@@ -374,25 +387,26 @@ export const useGame = create<GameState>((set, get) => ({
   completePad: (id) => {
     const s = get();
     if (s.worldPads.includes(id)) return;
-    // lazy import-safe: pad definitions mirrored via lookup through dynamic require is not possible;
-    // pads grouped by prefix below
-    const world = id.startsWith("solar") ? 2 : id.startsWith("wind") ? 3 : 4;
-    const totalPads = 3;
+    const def = PAD_DEFS.find((p) => p.id === id);
+    const world = def?.world ?? (id.startsWith("solar") ? 2 : id.startsWith("wind") ? 3 : id.startsWith("plant") ? 4 : 5);
+    const totalPads = PAD_DEFS.filter((p) => p.world === world).length;
     const done = [...s.worldPads, id];
     set({ worldPads: done });
-    get().addCoins(60);
+    const isMiner = id.startsWith("miner_");
+    get().addCoins(isMiner ? 35 : 60, true);
     get().addXp(60);
-    get().toast("یک مرحله انجام شد! +۶۰ سکه", "success");
-    const mine = done.filter((p) => (world === 2 ? p.startsWith("solar") : world === 3 ? p.startsWith("wind") : p.startsWith("plant")));
+    get().toast(isMiner ? "یک دستگاه غیرمجاز جمع شد! +۳۵ سکه" : "یک مرحله انجام شد! +۶۰ سکه", "success");
+    const mine = done.filter((p) => (PAD_DEFS.find((d) => d.id === p)?.world ?? 0) === world);
     if (mine.length === totalPads) {
       const titles: Record<number, string> = {
         2: "شهر خورشیدی روشن شد! ☀️",
-        3: "نیروگاه بادی راه افتاد! 💨",
+        3: "نیروگاه بادی راه افتاد! 💨 چتر پرواز جایزه گرفت!",
         4: "بازدید ایمنی نیروگاه کامل شد! ⚛️",
+        5: "محله از مصرف غیرمجاز پاک شد! تابلوی هوشمند سبز شد 🪧",
       };
       set((st) => ({
         coins: st.coins + 250,
-        neighborhood: Math.min(100, st.neighborhood + 14),
+        neighborhood: Math.min(100, st.neighborhood + (world === 5 ? 18 : 14)),
         lastMissionReward: { coins: 250, xp: 300, title: titles[world] },
         panel: "missionComplete",
       }));
@@ -436,6 +450,10 @@ export const useGame = create<GameState>((set, get) => ({
         get().completeObjective(1, "talk");
         set({ scannerUnlocked: true });
         get().toast("اسکنر انرژی فعال شد! داخل خانه Q را بزن", "info");
+      }
+      if (d.onEnd === "cryptoowner") {
+        get().completePad("crypto_owner");
+        get().toast("حالا ۴ دستگاه را یکی‌یکی جمع کن (E)", "warn");
       }
     }
   },
@@ -575,6 +593,7 @@ export const useGame = create<GameState>((set, get) => ({
       onRoof: false,
       activeWorld: 1,
       worldPads: [],
+      gliding: false,
     });
   },
   save: () => {

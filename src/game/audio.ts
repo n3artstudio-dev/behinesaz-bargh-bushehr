@@ -162,8 +162,15 @@ class AudioSys {
     this.tone(460, 0.12, "triangle", 0.08, 0.05);
   }
   coin() {
-    this.tone(1568, 0.09, "square", 0.05);
-    this.tone(2093, 0.16, "square", 0.05, 0.07);
+    // جرنگ جرنگ شاد جایزه — سه نت بالارونده + یک زنگ
+    this.tone(1318, 0.07, "triangle", 0.09);
+    this.tone(1760, 0.08, "triangle", 0.09, 0.05);
+    this.tone(2349, 0.18, "triangle", 0.1, 0.1);
+    this.tone(2637, 0.06, "sine", 0.06, 0.1);
+  }
+  reward() {
+    this.coin();
+    this.tone(3136, 0.3, "sine", 0.08, 0.16);
   }
   jump() {
     this.tone(300, 0.18, "sine", 0.12, 0, 700);

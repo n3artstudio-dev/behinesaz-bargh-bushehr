@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatTime, houseConsumption, isPeak, levelFromXp, meterColor, toFa, useGame, xpProgress } from "../game/store";
+import { formatTime, houseConsumption, isGliderUnlocked, isPeak, levelFromXp, meterColor, toFa, useGame, xpProgress } from "../game/store";
 import MapView from "./MapView";
 import type { Engine } from "../game/Engine";
 import { audio } from "../game/audio";
@@ -21,6 +21,9 @@ export default function HUD({ engine }: { engine: Engine | null }) {
   const inHouse = useGame((s) => s.inHouse);
   const setPanel = useGame((s) => s.setPanel);
   const setPhase = useGame((s) => s.setPhase);
+  const worldPads = useGame((s) => s.worldPads);
+  const gliderReady = isGliderUnlocked(worldPads);
+  const gliding = useGame((s) => s.gliding);
   const neighborhood = useGame((s) => s.neighborhood);
   const cons = houseConsumption({ appliances, solarLevel, time, upgrades });
   const peak = isPeak(time);
@@ -29,7 +32,6 @@ export default function HUD({ engine }: { engine: Engine | null }) {
   const active = missions.find((m) => m.state === "active");
   const nextObj = active?.objectives.find((o) => !o.done);
   const activeWorld = useGame((s) => s.activeWorld);
-  const worldPads = useGame((s) => s.worldPads);
   const wProg = activeWorld > 1 ? worldPadProgress(worldPads, activeWorld) : null;
   const nextPad = activeWorld > 1 ? PAD_DEFS.filter((p) => p.world === activeWorld).find((p) => !worldPads.includes(p.id)) : null;
   const lv = levelFromXp(xp);
@@ -178,6 +180,20 @@ export default function HUD({ engine }: { engine: Engine | null }) {
         </button>
       </div>
 
+      {/* Glider button */}
+      {gliderReady && (
+        <div className="absolute bottom-[26%] left-4 pointer-events-auto flex flex-col items-center gap-1">
+          <button
+            className={`ss-btn ${gliding ? "pink" : "blue"} !px-4 !py-3 flex-col !gap-0 text-sm ${gliding ? "" : "pulse"}`}
+            onClick={() => engine?.toggleGlider()}
+          >
+            <span className="text-2xl leading-none">🪂</span>
+            <span>{gliding ? "فرود بیا (F)" : "چتر پرواز (F)"}</span>
+          </button>
+          {gliding && <div className="ss-dark px-2 py-1 text-[11px] text-cyan-200">ارتفاع ۵۰ متری — توربین‌ها را ببین!</div>}
+        </div>
+      )}
+
       {/* Interaction prompt */}
       {prompt && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[26%] pop-in">
@@ -205,6 +221,7 @@ export default function HUD({ engine }: { engine: Engine | null }) {
           <span>Space پرش</span>
           <span>E تعامل</span>
           <span>Q اسکنر</span>
+          {gliderReady && <span>F چتر پرواز</span>}
           <span>موس دوربین</span>
         </div>
       )}

@@ -108,6 +108,20 @@ export default function MapView({ size, labels, region = 1 }: Props) {
           ))}
         </>
       )}
+      {region === 5 && (
+        <>
+          <rect x={sx(-4)} y={0} width={sx(4) - sx(-4)} height={h} fill="#6f7074" />
+          {/* ویلا */}
+          <rect x={sx(-21.7)} y={sz(568.3)} width={sx(-10.3) - sx(-21.7)} height={sz(581.7) - sz(568.3)} fill="#f4f1ea" stroke="#8a8270" rx={2} />
+          {/* تابلوی هوشمند */}
+          <rect x={sx(9)} y={sz(545)} width={sx(14) - sx(9)} height={sz(552) - sz(545)} fill="#0c2350" stroke="#ffd23a" rx={2} />
+          {pads.map((p) => {
+            const done = worldPads.includes(p.id);
+            const col = p.id.startsWith("miner") ? (done ? "#9ad6ff" : "#ff8a80") : p.id.startsWith("led") ? (done ? "#7be08a" : "#c9f2c0") : p.id === "crypto_door" ? (done ? "#9ad6ff" : "#ffd23a") : "#fff";
+            return <circle key={p.id} cx={sx(p.x)} cy={sz(p.z)} r={6} fill={col} stroke="#7a2020" strokeWidth={1.5} />;
+          })}
+        </>
+      )}
       {target && (
         <g transform={`translate(${sx(target.x)} ${sz(target.z)})`}>
           <circle r={7} fill="#ffd23a" stroke="#7a4a00" strokeWidth={2}>

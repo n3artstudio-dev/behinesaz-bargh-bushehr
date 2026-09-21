@@ -375,6 +375,8 @@ export function HelpPanel() {
             <span> دکمه X — اسکنر</span>
             <span> دکمه Y — نقشه</span>
             <span> LB — دویدن</span>
+            <span> RB — چتر پرواز</span>
+            <span> F — چتر پرواز</span>
             <span> Start — توقف</span>
             <span> Back — مأموریت‌ها</span>
             <span> D-Pad — حرکت</span>

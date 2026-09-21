@@ -199,6 +199,61 @@ function Stat({ label, value, color, wide }: { label: string; value: string; col
   );
 }
 
+export function CryptoPanel() {
+  const setPanel = useGame((s) => s.setPanel);
+  const worldPads = useGame((s) => s.worldPads);
+  const found = 4;
+  const eachW = 3000;
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-auto" dir="rtl">
+      <div className="ss-panel w-[min(94vw,520px)] p-5 pop-in max-h-[88vh] overflow-auto">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 shrink-0 rounded-2xl bg-gradient-to-b from-red-400 to-red-700 flex items-center justify-center text-2xl shadow-lg border-2 border-white">⚠️</div>
+            <div>
+              <div className="text-[11px] text-red-700 font-black">اسکنر انرژی یار برق — هشدار!</div>
+              <div className="text-lg font-black leading-tight">مصرف غیرعادی در ویلا شناسایی شد</div>
+            </div>
+          </div>
+          <button className="ss-btn gray !px-3 !py-1.5 text-sm shrink-0" onClick={() => { setPanel(null); audio.close(); }}>
+            ✕
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {Array.from({ length: found }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 bg-red-50 border-2 border-red-200 rounded-xl px-2 py-1.5">
+              <span className="text-xl">🖥️</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-black text-xs">دستگاه رمز ارز {toFa(i + 1)}</div>
+                <div className="text-[10px] text-red-800">بدون مجوز · تمام‌وقت</div>
+              </div>
+              <div className="font-black text-red-600 persian-num text-xs">{toFa(eachW)} وات</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <div className="bg-red-600 text-white rounded-xl p-2.5">
+            <div className="text-[11px]">مصرف کل شناسایی‌شده</div>
+            <div className="font-black text-xl persian-num">{toFa(found * eachW / 1000)} کیلووات</div>
+          </div>
+          <div className="bg-orange-100 border-2 border-orange-300 rounded-xl p-2.5">
+            <div className="text-[11px] text-orange-900">معادل مصرف</div>
+            <div className="font-black text-xl text-orange-700 persian-num">{toFa(found)} خانه!</div>
+          </div>
+        </div>
+        <div className="mt-3 text-xs bg-blue-50 border-2 border-blue-200 rounded-xl p-3 leading-relaxed">
+          استخراج رمز ارز بدون مجوز از شرکت برق، در ساعت اوج به شبکه فشار می‌آورد، باعث افت ولتاژ و خاموشی همسایه‌ها می‌شود و
+          <b className="text-red-700"> جریمه‌های سنگین </b>
+          در پی دارد. حالا برو سراغ صاحب ویلا و به او اخطار بده (E).
+        </div>
+        <button className="ss-btn pink w-full mt-4" onClick={() => { setPanel(null); audio.click(); }}>
+          {worldPads.includes("crypto_owner") ? "بستن" : "فهمیدم — می‌روم اخطار می‌دهم ▸"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DialogBox() {
   const d = useGame((s) => s.dialog);
   const next = useGame((s) => s.nextDialog);
@@ -365,7 +420,7 @@ export function MissionComplete() {
               <div className="text-xs opacity-80">{next.desc}</div>
             </div>
           )}
-          {/اتمی|پیشرفته/.test(r.title) && (
+          {/تابلوی هوشمند|اتمی|پیشرفته/.test(r.title) && (
             <div className="mt-3 text-sm bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
               🎉 تبریک محمد پارسا! هر چهار جهان انرژی کامل شد: خانه‌های هوشمند بوشهر، شهر خورشیدی، نیروگاه بادی و نیروگاه اتمی. حالا تو یک «یار برق» واقعی هستی و آیندهٔ روشن ایران با دست‌های تو ساخته می‌شود. 🇮🇷⚡
             </div>

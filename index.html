@@ -6,19 +6,19 @@
     <title>بهینه‌ساز برق — مأموریت بوشهر</title>
     
     <!-- PWA -->
-    <link rel="manifest" href="./manifest.json" />
+    <link rel="manifest" href="manifest.json" />
     <meta name="theme-color" content="#f0b820" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="یار برق" />
-    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
     <meta name="description" content="بازی سه‌بعدی آموزش مدیریت مصرف برق برای کودکان و نوجوانان بوشهر" />
     <meta name="mobile-web-app-capable" content="yes" />
     
     <!-- Open Graph -->
     <meta property="og:title" content="بهینه‌ساز برق — مأموریت بوشهر" />
     <meta property="og:description" content="بازی تعاملی یار برق — بوشهر، شهر انرژی‌های پاک" />
-    <meta property="og:image" content="./icon-512.png" />
+    <meta property="og:image" content="icon-512.png" />
     <meta property="og:type" content="website" />
     
     <!-- Fonts -->
@@ -85,10 +85,10 @@
     </div>
     
     <script>
-      // Register Service Worker
+      // Register Service Worker (relative path so it works on GitHub Pages & Vercel)
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.register("./sw.js").catch(() => {});
+          navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
         });
       }
       

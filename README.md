@@ -2,8 +2,17 @@
 
 بازی سه‌بعدی تعاملی آموزش مدیریت مصرف برق برای کودکان و نوجوانان ایرانی.
 
+## ⚡ استقرار یک‌کلیکی (بعد از آپلود کد در گیت‌هاب)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/n3artstudio-dev/behinesaz-bargh-bushehr)
+[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/n3artstudio-dev/behinesaz-bargh-bushehr)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/n3artstudio-dev/behinesaz-bargh-bushehr)
+
+> فایل `render.yaml` داخل پروژه هست؛ یعنی Render خودش می‌فهمه که باید `npm run build` بزنه و پوشه `dist` رو منتشر کنه. هیچ تنظیم دستی لازم نیست.
+
 ## 🎮 ویژگی‌ها
 
+- **چهار جهان قابل بازی**: ۱) بوشهر و خانه‌های هوشمند ۲) شهر خورشیدی ☀️ ۳) منطقه انرژی بادی 💨 ۴) شهر انرژی پیشرفته با نیروگاه اتمی بوشهر ⚛️
 - **دنیای سه‌بعدی بوشهر** با خلیج فارس، خانه‌های سنتی شناشیر، بازار و میدان
 - **کاراکتر محمد پارسا** با لباس زرد و آبی یار برق
 - **دسته بازی (Gamepad)** — کامل پشتیبانی از دسته‌های Xbox/PS

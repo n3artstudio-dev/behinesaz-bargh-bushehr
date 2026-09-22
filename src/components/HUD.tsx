@@ -104,6 +104,21 @@ export default function HUD({ engine }: { engine: Engine | null }) {
         </div>
       </div>
 
+      {/* مأموریت ایمنی برق در شهر اول (کنار مسجد، دو خیابان بالاتر) */}
+      {activeWorld === 1 && missions[0]?.state === "done" && !(worldPads.includes("safety_kid") && worldPads.includes("safety_flag")) && (
+        <div className="absolute top-[118px] right-3 ss-dark px-4 py-2 max-w-[340px] fade-in" style={{ borderColor: "#3d7fd6" }}>
+          <div className="text-[11px] opacity-80">☔ مأموریت ایمنی برق — دو خیابان بالاتر، کنار مسجد</div>
+          <div className="font-bold text-sm mt-0.5 flex items-start gap-2">
+            <span className="text-sky-300">◆</span>
+            <span>{!worldPads.includes("safety_kid") ? "بچه را از دست‌زدن به سیم لخت تیر برق نجات بده" : "به نصاب‌های پرچم نزدیک مسجد هشدار بده"}</span>
+          </div>
+          <div className="flex gap-1 mt-1.5">
+            {[0, 1].map((i) => (
+              <span key={i} className={`h-1.5 flex-1 rounded-full ${(i === 0 ? worldPads.includes("safety_kid") : worldPads.includes("safety_flag")) ? "bg-green-400" : "bg-white/25"}`} />
+            ))}
+          </div>
+        </div>
+      )}
       {/* Mission objective */}
       {activeWorld === 1 && active && (
         <div className="absolute top-[118px] right-3 ss-dark px-4 py-2 max-w-[340px] fade-in">

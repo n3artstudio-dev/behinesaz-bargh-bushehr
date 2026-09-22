@@ -15,6 +15,10 @@ export type Panel =
   | "solar"
   | "worlds"
   | "crypto"
+  | "profile"
+  | "admin"
+  | "dashboard"
+  | "leaderboard"
   | "help";
 
 export type ApplianceType = "bulb" | "fridge" | "ac" | "tv" | "light";
@@ -87,8 +91,64 @@ interface SaveData {
   worldCoinsCollected: number[];
   activeWorld: number;
   worldPads: string[];
+  medalGiven: boolean;
+  registered?: boolean;
+  profileId?: string;
+  playerName?: string;
+  mobile?: string;
+  billId?: string;
+  timeLocked?: boolean;
+  isNightLocked?: boolean;
   hasSave: boolean;
 }
+
+export interface PlayerRecord {
+  id: string;
+  name: string;
+  mobile: string;
+  billId: string;
+  stage: string;
+  world: number;
+  pads: number;
+  medals: number;
+  joinedAt: number;
+}
+
+const PLAYERS_KEY = "behinesaz_players_v1";
+
+export function loadPlayers(): PlayerRecord[] {
+  try {
+    return JSON.parse(localStorage.getItem(PLAYERS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function savePlayers(list: PlayerRecord[]) {
+  try {
+    localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
+  } catch {
+    /* storage full */
+  }
+}
+export function stageName(s: GameState): string {
+  if (s.medalGiven) return "دریافت مدال افتخار 🏅";
+  const w = WORLD_NAMES[s.activeWorld] ?? s.activeWorld;
+  if (s.activeWorld === 1) {
+    if (s.missions[0].state === "done") return "تکمیل بوشهر";
+    const idx = s.missions[0].objectives.findIndex((o) => !o.done);
+    return idx < 0 ? "بوشهر" : `بوشهر — مرحله ${toFa(idx + 1)}`;
+  }
+  const { done, total } = worldPadProgress(s.worldPads, s.activeWorld);
+  return `${w} (${toFa(done)}/${toFa(total)})`;
+}
+const WORLD_NAMES: Record<number, string> = {
+  1: "بوشهر",
+  2: "شهر خورشیدی",
+  3: "انرژی بادی",
+  4: "انرژی پیشرفته",
+  5: "رمز ارز",
+  6: "شهرک ایمنی",
+};
 
 export interface GameState extends SaveData {
   phase: Phase;
@@ -104,8 +164,28 @@ export interface GameState extends SaveData {
   settings: { music: boolean; sfx: boolean; sensitivity: number; quality: "high" | "medium" };
   cinematicText: string;
   lastMissionReward: { coins: number; xp: number; title: string } | null;
-  weather: "clear" | "haze";
+  weather: "clear" | "haze" | "rain";
   levelUpFlash: number;
+  medalGiven: boolean;
+  giveMedal: () => void;
+  // profile & registration
+  registered: boolean;
+  profileId: string;
+  playerName: string;
+  mobile: string;
+  billId: string;
+  setProfile: (p: { name: string; mobile: string; billId: string }) => void;
+  isAdmin: boolean;
+  adminLogin: (u: string, p: string) => boolean;
+  adminLogout: () => void;
+  getPlayers: () => PlayerRecord[];
+  // time controls
+  timeLocked: boolean;
+  isNightLocked: boolean;
+  toggleDayNight: () => void;
+  // admin cheats for testing
+  applyCheat: (code: string) => string | null;
+  recordProgress: () => void;
 
   // actions
   setPhase: (p: Phase) => void;
@@ -118,6 +198,7 @@ export interface GameState extends SaveData {
   worldPads: string[];
   gliding: boolean;
   setGliding: (v: boolean) => void;
+  activeNpc: string | null;
   setActiveWorld: (n: number) => void;
   completePad: (id: string) => void;
   tickTime: (dtMin: number) => void;
@@ -155,7 +236,7 @@ export function isWorldUnlocked(
   if (n <= 1) return true;
   const reqs: Record<number, string[]> = {
     2: [], // after Bushehr mission
-    3: ["solar_a", "solar_b", "solar_c"],
+    3: ["solar_a", "solar_b", "solar_c", "safety_kid", "safety_flag"],
     4: ["wind_a", "wind_b", "wind_c"],
     5: ["plant_control", "plant_cooling", "plant_dome"],
   };
@@ -373,7 +454,25 @@ export const useGame = create<GameState>((set, get) => ({
   activeWorld: 1,
   worldPads: [],
   gliding: false,
+  medalGiven: false,
+  activeNpc: null,
+  registered: false,
+  profileId: "",
+  playerName: "محمد پارسا",
+  mobile: "",
+  billId: "",
+  isAdmin: false,
+  timeLocked: true,
+  isNightLocked: false,
   setGliding: (gliding) => set({ gliding }),
+  giveMedal: () => {
+    if (get().medalGiven) return;
+    set({ medalGiven: true, panel: "missionComplete", lastMissionReward: { coins: 500, xp: 1000, title: "مدال افتخار طلایی و تندیس برق 🏅" } });
+    get().addCoins(500, true);
+    get().addXp(1000);
+    get().recordProgress();
+    get().save();
+  },
 
   setPhase: (phase) => set({ phase }),
   setPanel: (panel) => set({ panel }),
@@ -411,6 +510,7 @@ export const useGame = create<GameState>((set, get) => ({
         panel: "missionComplete",
       }));
       get().addXp(300);
+      get().recordProgress();
       get().save();
     }
   },
@@ -455,6 +555,12 @@ export const useGame = create<GameState>((set, get) => ({
         get().completePad("crypto_owner");
         get().toast("حالا ۴ دستگاه را یکی‌یکی جمع کن (E)", "warn");
       }
+      if (d.onEnd?.startsWith("safety_")) {
+        get().completePad(d.onEnd);
+        get().addCoins(40);
+        get().toast("نکته ایمنی آموخته شد! ✅", "success");
+      }
+      if (d.onEnd === "hq_medal") get().giveMedal();
     }
   },
   toast: (text, kind = "info") => {
@@ -594,6 +700,9 @@ export const useGame = create<GameState>((set, get) => ({
       activeWorld: 1,
       worldPads: [],
       gliding: false,
+      medalGiven: false,
+      timeLocked: true,
+      isNightLocked: false,
     });
   },
   save: () => {
@@ -611,6 +720,14 @@ export const useGame = create<GameState>((set, get) => ({
       worldCoinsCollected: s.worldCoinsCollected,
       activeWorld: s.activeWorld,
       worldPads: s.worldPads,
+      medalGiven: s.medalGiven ?? false,
+      registered: s.registered,
+      profileId: s.profileId,
+      playerName: s.playerName,
+      mobile: s.mobile,
+      billId: s.billId,
+      timeLocked: s.timeLocked ?? true,
+      isNightLocked: s.isNightLocked ?? false,
       hasSave: true,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -621,7 +738,8 @@ export const useGame = create<GameState>((set, get) => ({
     if (!raw) return false;
     try {
       const d = JSON.parse(raw) as SaveData;
-      set({ ...d, panel: null, dialog: null, scannerActive: false, worldPads: d.worldPads ?? [], activeWorld: d.activeWorld ?? 1 });
+      set({ ...d, panel: null, dialog: null, scannerActive: false, worldPads: d.worldPads ?? [], activeWorld: d.activeWorld ?? 1, medalGiven: d.medalGiven ?? false, timeLocked: d.timeLocked ?? true, isNightLocked: d.isNightLocked ?? false });
+      if (d.registered) setTimeout(() => get().recordProgress(), 300);
       return true;
     } catch {
       return false;
@@ -629,6 +747,86 @@ export const useGame = create<GameState>((set, get) => ({
   },
   clearMissionReward: () => set({ lastMissionReward: null, panel: null }),
   setWeather: (weather) => set({ weather }),
+
+  /* ---------- پروفایل و ثبت‌نام ---------- */
+  setProfile: (p) => {
+    const name = p.name.trim() || "محمد پارسا";
+    const id = get().profileId || `p_${Date.now()}_${Math.floor(Math.random() * 1e4)}`;
+    set({ registered: true, profileId: id, playerName: name, mobile: p.mobile.trim(), billId: p.billId.trim() });
+    const list = loadPlayers().filter((r) => r.id !== id);
+    list.unshift({ id, name, mobile: p.mobile.trim(), billId: p.billId.trim(), stage: "شروع", world: 1, pads: 0, medals: 0, joinedAt: Date.now() });
+    savePlayers(list);
+    get().save();
+  },
+  adminLogin: (u, p2) => {
+    if (u.trim().toLowerCase() === "admin" && p2 === "Bargh@2026") {
+      set({ isAdmin: true });
+      return true;
+    }
+    return false;
+  },
+  adminLogout: () => set({ isAdmin: false }),
+  getPlayers: () => loadPlayers(),
+
+  /* ---------- روز/شب دستی ---------- */
+  toggleDayNight: () => {
+    const s = get();
+    const toNight = !s.isNightLocked;
+    set({ timeLocked: true, isNightLocked: toNight, time: toNight ? 1380 : 780, weather: "clear" });
+  },
+
+  /* ---------- ثبت پیشرفت ---------- */
+  recordProgress: () => {
+    const s = get();
+    if (!s.profileId) return;
+    const list = loadPlayers();
+    const i = list.findIndex((r) => r.id === s.profileId);
+    if (i < 0) return;
+    list[i] = { ...list[i], name: s.playerName, mobile: s.mobile, billId: s.billId, stage: stageName(s), world: s.activeWorld, pads: s.worldPads.length, medals: s.medalGiven ? 1 : 0 };
+    savePlayers(list);
+  },
+
+  /* ---------- کدهای تقلب ادمین ---------- */
+  applyCheat: (codeRaw) => {
+    const code = codeRaw.trim().toUpperCase().replace(/\s/g, "");
+    const s = get();
+    const add = (ids: string[]) => set({ worldPads: Array.from(new Set([...get().worldPads, ...ids])) });
+    const finishMission1 = () => {
+      set({
+        scannerUnlocked: true,
+        missions: get().missions.map((m, i) => (i === 0 ? { ...m, state: "done" as const, objectives: m.objectives.map((o) => ({ ...o, done: true })) } : m)),
+      });
+    };
+    void s;
+    switch (code) {
+      case "BARQ-01":
+        finishMission1();
+        return "✅ مأموریت بوشهر کامل شد";
+      case "BARQ-02":
+        finishMission1();
+        add(["solar_a", "solar_b", "solar_c"]);
+        return "✅ شهر خورشیدی کامل شد";
+      case "BARQ-03":
+        finishMission1();
+        add(["solar_a", "solar_b", "solar_c", "safety_kid", "safety_flag", "wind_a", "wind_b", "wind_c"]);
+        return "✅ انرژی بادی کامل شد — چتر پرواز باز شد";
+      case "BARQ-04":
+        finishMission1();
+        add(["solar_a", "solar_b", "solar_c", "safety_kid", "safety_flag", "wind_a", "wind_b", "wind_c", "plant_control", "plant_cooling", "plant_dome"]);
+        return "✅ بازدید نیروگاه هسته‌ای کامل شد";
+      case "BARQ-05":
+        finishMission1();
+        add(["solar_a", "solar_b", "solar_c", "safety_kid", "safety_flag", "wind_a", "wind_b", "wind_c", "plant_control", "plant_cooling", "plant_dome", "crypto_door", "crypto_owner", "miner_1", "miner_2", "miner_3", "miner_4", "led_1", "led_2", "led_3", "led_4", "led_5"]);
+        return "✅ مأموریت رمز ارز و تابلوی هوشمند کامل شد";
+      case "BARQ-06":
+        finishMission1();
+        add(["solar_a", "solar_b", "solar_c", "safety_kid", "safety_flag", "wind_a", "wind_b", "wind_c", "plant_control", "plant_cooling", "plant_dome", "crypto_door", "crypto_owner", "miner_1", "miner_2", "miner_3", "miner_4", "led_1", "led_2", "led_3", "led_4", "led_5"]);
+        setTimeout(() => get().giveMedal(), 200);
+        return "🏅 همه مراحل + مدال افتخار فعال شد";
+      default:
+        return null;
+    }
+  },
 }));
 
 // derived helpers -------------------------------------------------------

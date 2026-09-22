@@ -42,6 +42,7 @@ export class Character {
   scanner?: THREE.Group;
   cap?: THREE.Group;
   glider?: THREE.Group;
+  medal?: THREE.Group;
   torsoMesh!: THREE.Mesh;
   phase = 0;
   blinkT = 2 + Math.random() * 3;
@@ -351,6 +352,26 @@ export class Character {
     this.glider = glider;
     this.body.add(glider);
 
+    // مدال افتخار طلایی با روبان (پایان بازی)
+    const medal = new THREE.Group();
+    const ribbonL = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.3), new THREE.MeshBasicMaterial({ color: "#1e4f9a", side: THREE.DoubleSide }));
+    ribbonL.position.set(-0.06, 0.28, 0.21);
+    const ribbonR = ribbonL.clone();
+    ribbonR.material = new THREE.MeshBasicMaterial({ color: "#f0b820", side: THREE.DoubleSide });
+    ribbonR.position.x = 0.06;
+    medal.add(ribbonL, ribbonR);
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 18), mat("#ffd23a", 0.25, 0.9, "#ffb300", 0.8));
+    disc.rotation.x = Math.PI / 2;
+    disc.position.set(0, 0.04, 0.22);
+    medal.add(disc);
+    const boltM = makeBolt(0.09, "#10345f");
+    boltM.position.set(0, 0.04, 0.26);
+    medal.add(boltM);
+    medal.position.y = 1.15;
+    medal.visible = false;
+    this.medal = medal;
+    this.body.add(medal);
+
     this.body.add(this.head);
   }
 
@@ -360,6 +381,10 @@ export class Character {
 
   setGlider(v: boolean) {
     if (this.glider) this.glider.visible = v;
+  }
+
+  setMedal(v: boolean) {
+    if (this.medal) this.medal.visible = v;
   }
 
   celebrate() {

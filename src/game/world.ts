@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { mat } from "./characters";
 import { asphaltTex, cobbleTex, plasterTex, sandTex, solarTex, stoneTex, tileFloorTex, woodTex } from "./textures";
+import { createSmartBoard } from "./worlds";
 
 export interface AABB {
   minX: number;
@@ -63,10 +64,17 @@ export interface World {
   roofEntryPos: THREE.Vector3;
   clouds: THREE.Group[];
   gulls: THREE.Group[];
+  flock: THREE.InstancedMesh;
+  flockData: { cx: number; cz: number; r: number; h: number; spd: number; a: number; s: number }[];
+  splashes: THREE.Mesh[];
+  nightLamps: THREE.Mesh[];
+  streetLights: THREE.PointLight[];
+  moonMesh: THREE.Mesh;
   sunSprite: THREE.Mesh;
   progressFlags: THREE.Group;
   smartMeter: THREE.Mesh;
   solarMarker: THREE.Mesh;
+  houseBoard?: ReturnType<typeof createSmartBoard>;
 }
 
 const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -161,8 +169,19 @@ export function buildWorld(): World {
   const water = makeWater();
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(600, 400, 160, 100), water);
   sea.rotation.x = -Math.PI / 2;
-  sea.position.set(0, -0.55, -215);
+  sea.position.set(0, -0.22, -215);
   group.add(sea);
+  // پاشش موج روی سنگفرش ساحل
+  const splashes: THREE.Mesh[] = [];
+  const splashMat = new THREE.MeshBasicMaterial({ color: "#eafaff", transparent: true, opacity: 0.45, depthWrite: false });
+  for (let i = 0; i < 26; i++) {
+    const s = new THREE.Mesh(new THREE.CircleGeometry(0.5 + Math.random() * 1.1, 14), splashMat.clone());
+    s.rotation.x = -Math.PI / 2;
+    s.position.set(-55 + Math.random() * 110, 0.1, -17.2 - Math.random() * 1.6);
+    s.userData.ph = Math.random() * Math.PI * 2;
+    group.add(s);
+    splashes.push(s);
+  }
   // quay wall
   const quay = box(200, 1.6, 1.4, stoneM, 0, 0.1, -18.4);
   group.add(quay);
@@ -216,10 +235,10 @@ export function buildWorld(): World {
   ];
   boatDefs.forEach((b, i) => {
     const boat = makeBoat(i);
-    boat.position.set(b.x, -0.95, b.z);
+    boat.position.set(b.x, -0.55, b.z);
     boat.rotation.y = b.rot;
     group.add(boat);
-    boats.push({ mesh: boat, base: V3(b.x, -0.95, b.z), phase: i * 1.3, drift: b.drift });
+    boats.push({ mesh: boat, base: V3(b.x, -0.55, b.z), phase: i * 1.3, drift: b.drift });
   });
   // lighthouse on breakwater far away
   const lh = new THREE.Group();
@@ -236,6 +255,29 @@ export function buildWorld(): World {
   group.add(lh);
   const breakwater = box(90, 2.5, 6, stoneM, -50, 0, -122);
   group.add(breakwater);
+  // کشتی بزرگ مسافربری دورناگشت و کشتی باری
+  const liner = makeOceanLiner();
+  liner.position.set(48, -0.5, -118);
+  liner.rotation.y = Math.PI / 2 + 0.06;
+  group.add(liner);
+  boats.push({ mesh: liner, base: V3(48, -0.5, -118), phase: 9.2, drift: 0.04 });
+  const cargo = makeCargoShip();
+  cargo.position.set(-58, -0.55, -78);
+  cargo.rotation.y = -Math.PI / 2 + 0.1;
+  cargo.scale.setScalar(0.9);
+  group.add(cargo);
+  boats.push({ mesh: cargo, base: V3(-58, -0.55, -78), phase: 4.1, drift: 0.03 });
+  // چند قایق صیادی دورتر
+  for (let i = 0; i < 6; i++) {
+    const fb = makeBoat(10 + i);
+    fb.scale.setScalar(0.8);
+    const fx = 30 + Math.cos(i * 1.1) * (40 + i * 6);
+    const fz = -45 - i * 14;
+    fb.position.set(fx, -0.45, fz);
+    fb.rotation.y = i * 0.7;
+    group.add(fb);
+    boats.push({ mesh: fb, base: V3(fx, -0.45, fz), phase: 2 + i, drift: 0.15 });
+  }
 
   // ---------------- Sky, sun, clouds ----------------
   const sky = makeSky();
@@ -249,16 +291,34 @@ export function buildWorld(): World {
     group.add(c);
     clouds.push(c);
   }
-  for (let i = 0; i < 6; i++) {
-    const g = makeGull();
-    g.userData.angle = Math.random() * Math.PI * 2;
-    g.userData.r = 12 + Math.random() * 25;
-    g.userData.h = 12 + Math.random() * 10;
-    g.userData.cx = -10 + Math.random() * 30;
-    g.userData.cz = -30 - Math.random() * 20;
-    group.add(g);
-    gulls.push(g);
+  // دسته‌ی بزرگ مرغ‌های دریایی (۷۰ عدد — InstancedMesh برای سبک بودن)
+  const gullGeo = new THREE.BufferGeometry();
+  {
+    const v = new Float32Array([
+      0, 0, 0, -1.1, 0.18, -0.2, 0, 0.28, -0.8,
+      0, 0, 0, 1.1, 0.18, -0.2, 0, 0.28, -0.8,
+      0, 0.1, 0.4, 0.1, 0.1, 0.05, -0.1, 0.1, 0.05,
+    ]);
+    gullGeo.setAttribute("position", new THREE.BufferAttribute(v, 3));
+    gullGeo.computeVertexNormals();
   }
+  const FLOCK_N = 60;
+  const flock = new THREE.InstancedMesh(gullGeo, new THREE.MeshBasicMaterial({ color: "#ffffff", side: THREE.DoubleSide }), FLOCK_N);
+  flock.frustumCulled = false;
+  group.add(flock);
+  const flockData = Array.from({ length: FLOCK_N }, (_, i) => {
+    const coastal = i < 48;
+    return {
+      cx: coastal ? -20 + Math.random() * 60 : -40 + Math.random() * 90,
+      cz: coastal ? -20 - Math.random() * 60 : -90 - Math.random() * 90,
+      r: 4 + Math.random() * (coastal ? 28 : 80),
+      h: 7 + Math.random() * 18,
+      spd: 0.25 + Math.random() * 0.5,
+      a: Math.random() * Math.PI * 2,
+      s: 0.5 + Math.random() * 1.2,
+    };
+  });
+  const nightLamps: THREE.Mesh[] = [];
 
   // ---------------- Palms ----------------
   const palmProto = makePalm();
@@ -290,6 +350,18 @@ export function buildWorld(): World {
     bench.rotation.y = r;
     group.add(bench);
   }
+  // نمادهای شهری بوشهر: تندیس میگو و طاق ساحلی رنگین‌کمان
+  const shrimp = makeShrimpStatue();
+  shrimp.position.set(-26, 0.02, -13.2);
+  shrimp.rotation.y = 0.5;
+  shrimp.scale.setScalar(1.05);
+  group.add(shrimp);
+  colliders.push({ minX: -28.5, maxX: -23.5, minZ: -15.0, maxZ: -11.4 });
+  const archMon = makeSeasideArch();
+  archMon.position.set(22, 0.02, -13.4);
+  archMon.scale.setScalar(1.1);
+  group.add(archMon);
+  colliders.push({ minX: 19.8, maxX: 24.2, minZ: -15.2, maxZ: -11.6 });
 
   // ---------------- Buildings ----------------
   // Mission house (traditional Bushehri, hollow interior)
@@ -327,6 +399,34 @@ export function buildWorld(): World {
   buildShop(group, colliders, interactables, windows, 16, 3, plasterWarm, woodLight, woodDoor);
   // Electrical station
   buildStation(group, colliders, interactables, -14, 48, metalM);
+
+  // ساختمان ۶ طبقه شرکت توزیع نیروی برق (ضلع شرقی میدان)
+  const hq = makeHQ(woodDark);
+  hq.position.set(17.3, 0.1, 40);
+  group.add(hq);
+  colliders.push({ minX: 10.4, maxX: 24.2, minZ: 33.6, maxZ: 46.4 });
+  npcSpawns.push({
+    id: "ceo",
+    kind: "man",
+    path: [V3(10.0, 0.12, 40.6), V3(9.6, 0.12, 38.6), V3(10.0, 0.12, 42.6), V3(10.0, 0.12, 40.6)],
+    speed: 0.6,
+    facing: -Math.PI / 2,
+    label: "مدیرعامل شرکت توزیع برق",
+    lines: ["به همیاران برق ما افتخار می‌کنیم!"],
+  });
+
+  // تابلوی هوشمند کنار خانه اصلی فاطمه
+  const houseBoard = createSmartBoard(3.4, 2.1);
+  houseBoard.mesh.position.set(-6.0, 2.4, 21.4);
+  houseBoard.mesh.rotation.y = -Math.PI / 2 - 0.5;
+  group.add(houseBoard.mesh);
+  const houseBoardTitle = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 0.6),
+    new THREE.MeshBasicMaterial({ map: textTex("تابلوی هوشمند خانه", "#ffd23a", "#10345f"), transparent: true }),
+  );
+  houseBoardTitle.position.set(-6.0, 3.9, 21.4);
+  houseBoardTitle.rotation.y = -Math.PI / 2 - 0.5;
+  group.add(houseBoardTitle);
 
   // ---------------- Electrical poles & wires ----------------
   const poleZs = [-6, 8, 22, 36, 50, 64];
@@ -384,6 +484,57 @@ export function buildWorld(): World {
     group.add(new THREE.Line(geo, wireMat));
   }
 
+  // چراغ‌های LED دو طرف خیابان و ساحل هر ۱۰ متر — با نور واقعی (یک چراغ از هر دو، برای سبک بودن)
+  const ledPoleMat = mat("#8f9aa8", 0.4, 0.7);
+  const ledHeadMat = new THREE.MeshStandardMaterial({ color: "#eaf6ff", roughness: 0.3, metalness: 0.2, emissive: "#bfeaff", emissiveIntensity: 0 });
+  const streetLights: THREE.PointLight[] = [];
+  let headIdx = 0;
+  for (let z = -16; z <= 74; z += 10) {
+    for (const sx of [-6.9, 6.9]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 5.6, 6), ledPoleMat);
+      pole.position.set(sx, 2.8, z);
+      pole.castShadow = false;
+      group.add(pole);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.08), ledPoleMat);
+      arm.position.set(sx + (sx > 0 ? -0.5 : 0.5), 5.5, z);
+      group.add(arm);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.14, 0.28), ledHeadMat);
+      head.position.set(sx + (sx > 0 ? -1.0 : 1.0), 5.45, z);
+      group.add(head);
+      nightLamps.push(head);
+      // فقط چراغ‌های متناوب (هر ۲۰ متر یک طرف) نور نقطه‌ای واقعی دارند تا شهر سبک بماند
+      if (headIdx % 2 === 0) {
+        const pl = new THREE.PointLight("#bfe2ff", 0, 26, 1.7);
+        pl.position.set(sx + (sx > 0 ? -1.0 : 1.0), 5.3, z);
+        group.add(pl);
+        streetLights.push(pl);
+      }
+      headIdx++;
+    }
+  }
+  // چند چراغ پارکی روی ساحل
+  for (let x = -40; x <= 40; x += 20) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 3.4, 6), ledPoleMat);
+    p.position.set(x, 1.7, -15.2);
+    group.add(p);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), ledHeadMat);
+    head.position.set(x, 3.5, -15.2);
+    group.add(head);
+    nightLamps.push(head);
+    const pl = new THREE.PointLight("#ffd9a0", 0, 20, 1.8);
+    pl.position.set(x, 3.3, -15.2);
+    group.add(pl);
+    streetLights.push(pl);
+  }
+
+  // ماه آسمان
+  const moonMesh = new THREE.Mesh(
+    new THREE.CircleGeometry(14, 32),
+    new THREE.MeshBasicMaterial({ color: "#f4f6ff", transparent: true, opacity: 0.95, fog: false }),
+  );
+  moonMesh.visible = false;
+  group.add(moonMesh);
+
   // ---------------- Cars ----------------
   const carDefs: [number, number, string, number][] = [
     [-5.9, 30, "#f2f2f2", 0],
@@ -434,7 +585,7 @@ export function buildWorld(): World {
       facing: Math.PI / 2,
       label: "خانم فاطمه",
       lines: [
-        "سلام محمد پارسا جان! تو همون یار برق محله‌ای، درسته؟",
+        "سلام قهرمان کوچولو! تو همون یار برق محله‌ای، درسته؟",
         "قبض برق خونه‌ی ما این ماه خیلی زیاد شده. نمی‌دونم مشکل از کجاست.",
         "می‌تونی بیای داخل و با اسکنر انرژی‌ات خونه رو بررسی کنی؟",
         "یادت باشه الان نزدیک ساعت اوج مصرفه؛ از ۱۳ تا ۱۸ باید بیشتر مراقب باشیم.",
@@ -454,7 +605,7 @@ export function buildWorld(): World {
       kind: "fisherman",
       path: [V3(8, 0.1, -38.5), V3(8, 0.1, -24)],
       speed: 1.2,
-      label: "ننه‌خدا، صیاد",
+      label: "ناخدا، صیاد",
       lines: ["دریا امروز آرومه، نسیم خوبی می‌آد.", "قدیم‌ها بابام می‌گفت خونه‌های شناشیر خودشون خنک بودن؛ کولر لازم نداشتن!"],
     },
     {
@@ -570,9 +721,16 @@ export function buildWorld(): World {
     solarMarker,
     clouds,
     gulls,
+    flock,
+    flockData,
+    splashes,
+    nightLamps,
+    streetLights,
+    moonMesh,
     sunSprite,
     progressFlags,
     smartMeter,
+    houseBoard,
   };
 }
 
@@ -970,6 +1128,15 @@ function buildMissionHouse(
   h.add(samovar);
   // interior window panels (stained glass arches seen from inside)
   for (const z of [12.4, 19.6]) stainedArch(h, x1 - t - 0.03, 2.1, z, -Math.PI / 2);
+  // پنجره رنگین‌کمان هفت‌رنگ داخل خانه (روی دیوار شمالی)
+  const sgIn = stainedGlass(1.9, 2.8);
+  sgIn.position.set(-19, 0.55, z0 + t + 0.07);
+  h.add(sgIn);
+  // پنجره رنگین‌کمان نمای جنوبی خانه
+  const sgOut = stainedGlass(2.1, 3.0);
+  sgOut.position.set(-16.4, 0.7, z1 + 0.12);
+  sgOut.rotation.y = Math.PI;
+  h.add(sgOut);
 
   group.add(h);
   return { door, doorPos: V3(x1, 0, 16), solarGroup, solarGroup2, smartMeter, solarMarker: marker };
@@ -995,6 +1162,56 @@ function stainedArch(parent: THREE.Object3D, x: number, y: number, z: number, ro
   g.position.set(x, y, z);
   g.rotation.y = rotY;
   parent.add(g);
+}
+
+/* پنجره رنگین‌کمان هفت‌رنگ (الهام از معماری بوشهر) */
+function stainedGlass(w = 2.2, h = 3.2) {
+  const g = new THREE.Group();
+  const plasterM = mat("#f2ecdd", 0.85);
+  const frameM = mat("#5b3a1e", 0.6);
+  const glassM = (c: string) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.25, metalness: 0.1, emissive: c, emissiveIntensity: 0.35, side: THREE.DoubleSide });
+  const colors = ["#e63946", "#ff9f1c", "#ffd23a", "#2fb43a", "#2a9dcc", "#3a4ed0", "#8e3bd0"];
+  const r = w / 2;
+  // قاب گچی بیرونی — مستطیل + نیم‌دایره بالا
+  const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, h + 0.5, 0.12), plasterM);
+  back.position.y = h / 2 - 0.4;
+  g.add(back);
+  // بادبزن بالایی (هفت قاچ رنگین‌کمانی)
+  for (let i = 0; i < 7; i++) {
+    const seg = new THREE.Mesh(new THREE.CircleGeometry(r - 0.1, 16, (i / 7) * Math.PI, Math.PI / 7 + 0.03), glassM(colors[i]));
+    seg.position.set(0, h - 0.55, 0.08);
+    seg.rotation.z = Math.PI;
+    g.add(seg);
+  }
+  // میله‌های شعاعی چوبی بادبزن
+  for (let i = 0; i <= 7; i++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.07, r, 0.06), frameM);
+    bar.position.set(-Math.cos((i / 7) * Math.PI) * r * 0.5, h - 0.55 - Math.sin((i / 7) * Math.PI) * r * 0.5, 0.12);
+    bar.rotation.z = (i / 7) * Math.PI;
+    g.add(bar);
+  }
+  // دو لنگ پایینی با شبکه الماسی و شیشه‌های رنگی
+  for (const sx of [-1, 1]) {
+    const sash = new THREE.Group();
+    const x0 = sx * r * 0.5;
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(w * 0.46, h - r - 0.7, 0.1), frameM);
+    frame.position.set(x0, (h - r - 0.7) / 2 - 0.35, 0.06);
+    sash.add(frame);
+    // الماس‌های رنگی
+    for (let r2 = 0; r2 < 3; r2++)
+      for (let c2 = 0; c2 < 2; c2++) {
+        const dia = new THREE.Mesh(new THREE.CircleGeometry(0.2, 4), glassM(colors[(r2 * 2 + c2 + (sx > 0 ? 3 : 0)) % 7]));
+        dia.rotation.z = Math.PI / 4;
+        dia.position.set(x0 + (c2 - 0.5) * 0.42, 0.1 + r2 * 0.42, 0.13);
+        sash.add(dia);
+      }
+    g.add(sash);
+  }
+  // طاق چوبی روی بادبزن
+  const archRing = new THREE.Mesh(new THREE.TorusGeometry(r + 0.02, 0.07, 8, 24, Math.PI), frameM);
+  archRing.position.set(0, h - 0.55, 0.14);
+  g.add(archRing);
+  return g;
 }
 
 function archWindow(parent: THREE.Object3D, windows: THREE.Mesh[], x: number, y: number, z: number, rotY: number, w: number, h: number, frameM: THREE.Material, glass: string) {
@@ -1146,6 +1363,7 @@ function traditionalHouse(
   g.add(door);
   // windows on facade (ground + upper floors)
   const n = Math.max(2, Math.floor(along / 3.2));
+  const stainedAt = Math.floor(Math.random() * n);
   for (let f = 0; f < floors; f++) {
     for (let i = 0; i < n; i++) {
       const off = -along / 2 + (i + 0.5) * (along / n);
@@ -1158,6 +1376,12 @@ function traditionalHouse(
         pane.rotation.y = facadeRot;
         g.add(pane);
         windows.push(pane);
+      } else if (f === 0 && i === stainedAt && Math.abs(off) >= 1.2) {
+        // پنجره رنگین‌کمان هفت‌رنگ بوشهری
+        const sg = stainedGlass(2.0, 2.9);
+        sg.position.set(wx, f * 3.6 + 1.85, wz);
+        sg.rotation.y = facadeRot;
+        g.add(sg);
       } else archWindow(g, windows, wx, f * 3.6 + 2.0, wz, facadeRot, 1.0, 1.8, woodM, f === 0 ? "#2e5f8c" : "#7aa3c9");
     }
   }
@@ -1380,6 +1604,87 @@ function makePalm() {
   return g;
 }
 
+function makeOceanLiner() {
+  const g = new THREE.Group();
+  const hullM = mat("#e9eef2", 0.55);
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.6, 46), hullM);
+  hull.position.y = 0.6;
+  g.add(hull);
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(2.2, 4, 4), hullM);
+  bow.rotation.x = -Math.PI / 2;
+  bow.rotation.z = Math.PI / 4;
+  bow.scale.set(1, 1, 1);
+  bow.position.set(0, 0.6, 25);
+  g.add(bow);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.4, 44), mat("#c0392b", 0.6));
+  stripe.position.y = 0.4;
+  g.add(stripe);
+  // عرشه‌ها
+  for (let d = 0; d < 4; d++) {
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(3.8 - d * 0.5, 0.9, 30 - d * 4), mat("#f7f9fb", 0.6));
+    deck.position.set(0, 1.8 + d * 0.85, -2 + d * 0.5);
+    deck.castShadow = true;
+    g.add(deck);
+    // ردیف پنجره‌ها
+    for (let z = -12; z <= 12; z += 2.4) {
+      for (const sx of [-1.95 + d * 0.25, 1.95 - d * 0.25]) {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.25, 0.7), mat("#12314f", 0.2, 0.4, "#9fd0ff", 0.5));
+        w.position.set(sx, 1.9 + d * 0.85, z);
+        g.add(w);
+      }
+    }
+  }
+  // دو دودکش مشبک
+  for (const fx of [-0.8, 0.8]) {
+    const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 3.4, 14), mat("#f5f7fa", 0.55));
+    funnel.position.set(fx, 6.4, -4);
+    funnel.castShadow = true;
+    g.add(funnel);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.6, 0.5, 14), mat("#c0392b", 0.55));
+    cap.position.set(fx, 8.1, -4);
+    g.add(cap);
+    const lattice = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 1.6, 14, 1, true), new THREE.MeshStandardMaterial({ color: "#dfe6ec", wireframe: true, roughness: 0.4 }));
+    lattice.position.set(fx, 6.0, -4);
+    g.add(lattice);
+  }
+  // دکل و رشته پرچم‌ها
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 7, 8), mat("#e8e8e8", 0.4, 0.7));
+  mast.position.set(0, 7, 10);
+  g.add(mast);
+  for (let z = -14; z <= 14; z += 3.5) {
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.5), mat(["#e63946", "#f1c40f", "#2980b9", "#27ae60"][Math.abs(Math.floor(z)) % 4], 0.7));
+    flag.position.set(0, 7.6 - Math.abs(z) * 0.05, z);
+    g.add(flag);
+  }
+  g.scale.setScalar(1.15);
+  return g;
+}
+
+function makeCargoShip() {
+  const g = new THREE.Group();
+  const hullM = mat("#2c3e50", 0.65);
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(6, 2, 34), hullM);
+  hull.position.y = 0.8;
+  g.add(hull);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(5, 4.5, 7), mat("#ecf0f1", 0.6));
+  cabin.position.set(0, 3.6, -11);
+  g.add(cabin);
+  const stack = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.6, 4), mat("#c0392b", 0.6));
+  stack.position.set(0, 6, -11);
+  g.add(stack);
+  // کانتینرهای رنگی
+  const cols = ["#e63946", "#f39c12", "#2980b9", "#27ae60"];
+  let k = 0;
+  for (let r = 0; r < 3; r++)
+    for (let z = -2; z <= 12; z += 2.6)
+      for (const sx of [-1.3, 1.3]) {
+        const c = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 2.4), mat(cols[k++ % 4], 0.75));
+        c.position.set(sx, 2.2 + r * 1.05, z);
+        g.add(c);
+      }
+  return g;
+}
+
 function makeBoat(i: number) {
   const g = new THREE.Group();
   const hullC = ["#2f5f9e", "#f2efe4", "#3aa17e", "#c9503a", "#4a4a8a"][i % 5];
@@ -1432,17 +1737,107 @@ function makeCloud(i: number) {
   return g;
 }
 
-function makeGull() {
+/* تندیس میگوی بوشهر */
+function makeShrimpStatue() {
   const g = new THREE.Group();
-  const m = mat("#ffffff", 0.8);
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), m);
-  body.scale.set(1.6, 0.8, 0.8);
-  g.add(body);
-  for (const s of [-1, 1]) {
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.9), m);
-    wing.position.set(0, 0.05, s * 0.5);
-    wing.name = s < 0 ? "wl" : "wr";
-    g.add(wing);
+  const orange = new THREE.MeshStandardMaterial({ color: "#e8641f", roughness: 0.45, metalness: 0.25 });
+  const dark = new THREE.MeshStandardMaterial({ color: "#141414", roughness: 0.4, metalness: 0.3 });
+  // پایه سنگی
+  const base = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.1, 3), mat("#9a8f7d", 0.9));
+  base.position.y = 0.55;
+  base.castShadow = base.receiveShadow = true;
+  g.add(base);
+  const base2 = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 2.0, 0.5, 4), mat("#867a68", 0.9));
+  base2.position.y = 1.35;
+  base2.rotation.y = Math.PI / 4;
+  g.add(base2);
+  const shrimp = new THREE.Group();
+  // بدن خمیده (C شکل): زنجیره قطعات کروی
+  for (let i = 0; i < 8; i++) {
+    const t = i / 7;
+    const ang = -0.5 + t * 2.3;
+    const rad = 2.4;
+    const seg = new THREE.Mesh(new THREE.SphereGeometry(0.78 - t * 0.35, 12, 10), orange);
+    seg.position.set(Math.cos(ang) * rad - 0.4, 2.6 + Math.sin(ang) * rad + 0.6, 0);
+    seg.rotation.z = ang;
+    seg.castShadow = true;
+    shrimp.add(seg);
+  }
+  // سر مخروطی
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.8, 12), orange);
+  head.position.set(1.5, 5.0, 0);
+  head.rotation.z = 1.0;
+  head.castShadow = true;
+  shrimp.add(head);
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), dark);
+  eye.position.set(2.0, 5.5, 0.45);
+  shrimp.add(eye);
+  // شاخک‌ها
+  for (const sz of [-1, 1]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(2.0, 5.7, sz * 0.2),
+      new THREE.Vector3(3.4, 7.0, sz * 0.5),
+      new THREE.Vector3(5.0, 7.6, sz * 0.8),
+    ]);
+    const ant = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.035, 5), dark);
+    shrimp.add(ant);
+  }
+  // پاها
+  for (let i = 0; i < 5; i++) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 5), orange);
+      leg.position.set(0.2 + i * 0.55, 3.4 - i * 0.25, sz * 0.5);
+      leg.rotation.z = (Math.random() - 0.5) * 0.5;
+      shrimp.add(leg);
+    }
+  }
+  // دم فن شکل
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.3, 4), orange);
+  tail.position.set(-2.7, 2.4, 0);
+  tail.rotation.z = -2.2;
+  shrimp.add(tail);
+  g.add(shrimp);
+  return g;
+}
+
+/* طاق ساحلی نماد بوشهر با شیشه رنگین‌کمان */
+function makeSeasideArch() {
+  const g = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ map: stoneTex([3, 1]), roughness: 0.92 });
+  // دو پایه
+  for (const sx of [-1.7, 1.7]) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(1.5, 6.5, 1.2), stone);
+    p.position.set(sx, 3.25, 0);
+    p.castShadow = true;
+    g.add(p);
+  }
+  // تاق بالا
+  const top = new THREE.Mesh(new THREE.BoxGeometry(4.9, 1.2, 1.2), stone);
+  top.position.set(0, 7.0, 0);
+  g.add(top);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.7, 0.28, 10, 24, Math.PI), stone);
+  ring.position.set(0, 5.9, 0.1);
+  g.add(ring);
+  // شیشه رنگین‌کمان داخل تاق
+  const glassCols = ["#e63946", "#ff9f1c", "#ffd23a", "#2fb43a", "#2a9dcc", "#3a4ed0"];
+  for (let i = 0; i < 6; i++) {
+    const seg = new THREE.Mesh(new THREE.CircleGeometry(1.45, 14, (i / 6) * Math.PI, Math.PI / 6 + 0.04), new THREE.MeshStandardMaterial({ color: glassCols[i], emissive: glassCols[i], emissiveIntensity: 0.3, side: THREE.DoubleSide, roughness: 0.3 }));
+    seg.position.set(0, 5.9, 0.15);
+    seg.rotation.z = Math.PI;
+    g.add(seg);
+  }
+  // شبکه فلزی پایین تاق
+  for (let i = -3; i <= 3; i++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 2.2, 0.07), mat("#3a3328", 0.6, 0.4));
+    bar.position.set(i * 0.45, 2.0, 0.15);
+    g.add(bar);
+  }
+  // مربع‌های شیشه‌ای رنگی بالای تاق
+  for (let i = 0; i < 4; i++) {
+    const c = glassCols[(i * 2) % 6];
+    const sq = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4, side: THREE.DoubleSide }));
+    sq.position.set(-0.55 + i * 0.37, 7.0, 0.62);
+    g.add(sq);
   }
   return g;
 }
@@ -1503,6 +1898,127 @@ function makeMoto(metalM: THREE.Material) {
   bar.position.set(0.5, 0.95, 0);
   g.add(bar);
   return g;
+}
+
+/* ساختمان ۶ طبقه شرکت توزیع نیروی برق استان بوشهر */
+function makeHQ(woodDark: THREE.Material) {
+  const g = new THREE.Group();
+  const cream = new THREE.MeshStandardMaterial({ map: plasterTex("#e2d09a", [2, 4], 31), roughness: 0.8 });
+  const terracotta = new THREE.MeshStandardMaterial({ color: "#c46a52", roughness: 0.6 });
+  const glassDark = new THREE.MeshStandardMaterial({ color: "#1c2733", roughness: 0.2, metalness: 0.5, emissive: "#33506e", emissiveIntensity: 0.25 });
+  for (let f = 0; f < 6; f++) {
+    const setback = f > 3 ? (f - 3) * 0.7 : 0;
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(13.5 - setback, 2.9, 12.5), cream);
+    slab.position.set(setback / 2, 1.45 + f * 3.05, 0);
+    slab.castShadow = slab.receiveShadow = true;
+    g.add(slab);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(13.7 - setback, 0.35, 12.7), terracotta);
+    band.position.set(setback / 2, 2.85 + f * 3.05, 0);
+    g.add(band);
+    for (let i = 0; i < 4; i++) {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.5, 2.2), glassDark);
+      win.position.set(-6.75 + setback, 1.5 + f * 3.05, -4.2 + i * 2.8);
+      g.add(win);
+    }
+  }
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.5, 10), terracotta);
+  roof.position.set(1.1, 18.55, 0);
+  g.add(roof);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(12.6, 2.6), new THREE.MeshBasicMaterial({ map: hqSignTexture() }));
+  sign.position.set(-6.85, 16.4, 0);
+  sign.rotation.y = -Math.PI / 2;
+  g.add(sign);
+  const logo = new THREE.Mesh(new THREE.CircleGeometry(0.55, 24), new THREE.MeshBasicMaterial({ map: boltLogoTexture() }));
+  logo.position.set(-6.92, 16.4, -5.4);
+  logo.rotation.y = -Math.PI / 2;
+  g.add(logo);
+  const led = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.6), new THREE.MeshBasicMaterial({ map: ledScreenTexture() }));
+  led.position.set(-6.92, 13.2, -2.2);
+  led.rotation.y = -Math.PI / 2;
+  g.add(led);
+  const entrance = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3.0, 3.4), new THREE.MeshStandardMaterial({ color: "#0d1620", roughness: 0.15, metalness: 0.6, emissive: "#27425e", emissiveIntensity: 0.4 }));
+  entrance.position.set(-6.85, 1.5, 3.2);
+  g.add(entrance);
+  const awning = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 4.2), woodDark);
+  awning.position.set(-7.3, 3.2, 3.2);
+  g.add(awning);
+  for (const z of [-5.2, 5.2]) {
+    const gp = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 1.2, 8), mat("#cfd6df", 0.4, 0.6));
+    gp.position.set(-8.4, 0.6, z);
+    g.add(gp);
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 10), mat("#fff6d8", 0.3, 0, "#ffe9a8", 1.2));
+    globe.position.set(-8.4, 1.4, z);
+    g.add(globe);
+  }
+  // پرچم ایران روی بام
+  const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3, 6), mat("#cfd6df", 0.4, 0.7));
+  flagPole.position.set(2, 20.2, 4);
+  g.add(flagPole);
+  return g;
+}
+function hqSignTexture() {
+  const c = document.createElement("canvas");
+  c.width = 1024;
+  c.height = 256;
+  const ctx = c.getContext("2d")!;
+  const grd = ctx.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0, "#e4eef8");
+  grd.addColorStop(1, "#c3d2e2");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 1024, 256);
+  ctx.strokeStyle = "#8fa3b8";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(4, 4, 1016, 248);
+  ctx.fillStyle = "#f0b820";
+  ctx.beginPath();
+  ctx.arc(962, 60, 42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#10345f";
+  ctx.font = "900 60px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("⚡", 962, 82);
+  ctx.fillStyle = "#16345c";
+  ctx.font = "bold 74px Vazirmatn, Tahoma, sans-serif";
+  ctx.direction = "rtl";
+  ctx.fillText("شرکت توزیع نیروی برق استان بوشهر", 460, 122);
+  ctx.font = "32px Arial";
+  ctx.fillStyle = "#33516e";
+  ctx.fillText("BOUSHEHR ELECTRICITY DISTRIBUTION CO.", 460, 196);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function boltLogoTexture() {
+  const c = document.createElement("canvas");
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#f0b820";
+  ctx.beginPath();
+  ctx.arc(64, 64, 62, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#10345f";
+  ctx.font = "900 80px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("⚡", 64, 92);
+  return new THREE.CanvasTexture(c);
+}
+function ledScreenTexture() {
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 150;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#0a1420";
+  ctx.fillRect(0, 0, 320, 150);
+  ctx.fillStyle = "#35e08a";
+  ctx.font = "bold 32px Vazirmatn, Tahoma, sans-serif";
+  ctx.direction = "rtl";
+  ctx.textAlign = "center";
+  ctx.fillText("صرفه‌جویی امروز =", 160, 60);
+  ctx.fillText("روشنایی فردا", 160, 108);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function textTex(text: string, color: string, bg: string) {
@@ -1633,10 +2149,11 @@ function makeSky() {
       uSunDir: { value: new THREE.Vector3(0.3, 0.8, 0.5) },
       uSunColor: { value: new THREE.Color("#fff1c9") },
       uNight: { value: 0 },
+      uTime: { value: 0 },
     },
     vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: `
-      uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
+      uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight; uniform float uTime;
       varying vec3 vDir;
       float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758.5453); }
       void main(){
@@ -1647,8 +2164,12 @@ function makeSky() {
         col += uSunColor * pow(sd, 3.0) * 0.12 * (1.0 - h);
         // night
         vec3 nightCol = mix(vec3(0.08,0.1,0.2), vec3(0.01,0.02,0.06), h);
-        float stars = step(0.9985, hash(floor(vDir*300.0))) * h;
-        nightCol += stars;
+        vec3 sc = floor(vDir*340.0);
+        float sd2 = step(0.9945, hash(sc));
+        float tw = 0.6 + 0.4*sin(uTime*2.2 + hash(sc+13.0)*40.0);
+        nightCol += vec3(1.0,0.97,0.85) * sd2 * h * tw * 1.3;
+        float big = step(0.9988, hash(sc*0.5));
+        nightCol += vec3(0.9,0.95,1.0) * big * h * tw;
         col = mix(col, nightCol, uNight);
         gl_FragColor = vec4(col, 1.0);
       }`,

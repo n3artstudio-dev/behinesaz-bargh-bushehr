@@ -145,7 +145,7 @@ export function ScannerPanel() {
         {stage === "installing" && (
           <div className="py-10 text-center">
             <div className="text-6xl floaty">🔧</div>
-            <div className="font-black text-lg mt-3">محمد پارسا در حال نصب {a.replaceName}...</div>
+            <div className="font-black text-lg mt-3">{useGame.getState().playerName} در حال نصب {a.replaceName}...</div>
             <div className="mt-3 h-3 rounded-full bg-blue-100 overflow-hidden mx-10">
               <div className="h-full bg-gradient-to-r from-yellow-300 to-green-500 animate-pulse" style={{ width: "100%" }} />
             </div>
@@ -394,6 +394,7 @@ export function MissionComplete() {
   const clear = useGame((s) => s.clearMissionReward);
   const missions = useGame((s) => s.missions);
   const neighborhood = useGame((s) => s.neighborhood);
+  const playerName = useGame((s) => s.playerName);
   if (!r) return null;
   const next = missions.find((m) => m.state === "active");
   return (
@@ -420,9 +421,15 @@ export function MissionComplete() {
               <div className="text-xs opacity-80">{next.desc}</div>
             </div>
           )}
-          {/تابلوی هوشمند|اتمی|پیشرفته/.test(r.title) && (
+          {/مدال|تندیس/.test(r.title) && (
+            <div className="mt-3 text-sm bg-yellow-50 border-2 border-yellow-300 rounded-xl p-3 leading-relaxed">
+              🏅 مدیرعامل شرکت توزیع نیروی برق استان بوشهر، مدال افتخار طلایی و تندیس برق را به گردنت می‌اندازد:
+              «همیار برق عزیز! از تو سپاسگزاریم که در کاهش مصرف برق در استان و کشور با ما سهیم شدی و نکات ارزشمند مدیریت مصرف، ایمنی و خطر رمز ارز غیرمجاز را به شهروندان آموختی. ما به همیاران برق خود افتخار می‌کنیم.» 🇮🇷⚡
+            </div>
+          )}
+          {/تابلوی هوشمند|اتمی|پیشرفته/.test(r.title) && !/مدال|تندیس/.test(r.title) && (
             <div className="mt-3 text-sm bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
-              🎉 تبریک محمد پارسا! هر چهار جهان انرژی کامل شد: خانه‌های هوشمند بوشهر، شهر خورشیدی، نیروگاه بادی و نیروگاه اتمی. حالا تو یک «یار برق» واقعی هستی و آیندهٔ روشن ایران با دست‌های تو ساخته می‌شود. 🇮🇷⚡
+              🎉 تبریک {playerName}! همه جهان‌های انرژی کامل شد: خانه‌های هوشمند بوشهر، شهر خورشیدی، نیروگاه بادی و نیروگاه اتمی. حالا تو یک «یار برق» واقعی هستی و آیندهٔ روشن ایران با دست‌های تو ساخته می‌شود. 🇮🇷⚡
             </div>
           )}
           <button className="ss-btn mt-5" onClick={() => { clear(); audio.click(); }}>

@@ -7,15 +7,16 @@ import type { Engine } from "../game/Engine";
 export function MainMenu({ onNew, onContinue }: { onNew: () => void; onContinue: () => void }) {
   const hasSave = useGame((s) => s.hasSave);
   const setPanel = useGame((s) => s.setPanel);
+  const playerName = useGame((s) => s.playerName);
   return (
     <div className="absolute inset-0 pointer-events-auto flex flex-col items-center justify-between py-8 fade-in" dir="rtl" style={{ background: "radial-gradient(ellipse at 50% 30%, rgba(0,0,0,0) 30%, rgba(5,20,50,0.55) 100%)" }}>
       <div className="text-center mt-4">
         <div className="text-sm font-bold text-white/90 tracking-wider drop-shadow">خلاقانه</div>
         <h1 className="ss-title text-6xl md:text-7xl leading-tight">بهینه‌ساز برق</h1>
         <div className="mt-1 inline-block bg-white/90 text-blue-900 font-black px-5 py-1.5 rounded-full border-4 border-yellow-300 shadow-lg text-lg">مأموریت بوشهر — جهان ۰۱</div>
-        <div className="text-white/90 font-bold mt-3 drop-shadow">شهر به کمک تو نیاز دارد، محمد پارسا! ⚡</div>
+        <div className="text-white/90 font-bold mt-3 drop-shadow">شهر به کمک تو نیاز دارد، {playerName}! ⚡</div>
       </div>
-      <div className="flex flex-col gap-3 items-center w-[min(92vw,360px)]">
+      <div className="flex flex-col gap-2.5 items-center w-[min(92vw,360px)]">
         {hasSave && (
           <button className="ss-btn green w-full text-xl" onClick={() => { audio.init(); audio.click(); onContinue(); }}>
             ▶ ادامه بازی
@@ -31,12 +32,23 @@ export function MainMenu({ onNew, onContinue }: { onNew: () => void; onContinue:
           <button className="ss-btn blue !px-2 text-sm" onClick={() => { audio.init(); audio.open(); setPanel("map"); }}>
             نقشه
           </button>
+          <button className="ss-btn pink !px-2 text-sm" onClick={() => { audio.init(); audio.open(); setPanel("leaderboard"); }}>
+            🏆 قهرمان‌ها
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 w-full">
           <button className="ss-btn blue !px-2 text-sm" onClick={() => { audio.init(); audio.open(); setPanel("settings"); }}>
             تنظیمات
           </button>
+          <button className="ss-btn blue !px-2 text-sm" onClick={() => { audio.init(); audio.open(); setPanel("profile"); }}>
+            پروفایل
+          </button>
+          <button className="ss-btn gray !px-2 text-sm" onClick={() => { audio.init(); audio.open(); setPanel("help"); }}>
+            راهنما
+          </button>
         </div>
-        <button className="ss-btn gray w-full text-sm" onClick={() => { audio.init(); audio.open(); setPanel("help"); }}>
-          راهنمای بازی و کنترل‌ها
+        <button className="ss-btn gray w-full !text-xs" onClick={() => { audio.init(); audio.click(); setPanel("admin"); }}>
+          🔐 ورود به پنل مدیریت
         </button>
       </div>
       <div className="text-white/80 text-xs text-center font-bold drop-shadow flex items-center gap-2">
@@ -107,7 +119,7 @@ export function MapPanel() {
           <MapView size={380} labels region={region} />
         </div>
         <div className="flex-1 text-sm space-y-2">
-          <Legend c="#ff3ea5" t="محمد پارسا (تو)" />
+          <Legend c="#ff3ea5" t={`${useGame.getState().playerName} (تو)`} />
           <Legend c="#ffd23a" t="مأموریت فعال" />
           <Legend c="#e9dcc0" t="خانه‌های سنتی بوشهری" />
           <Legend c="#d7d2c8" t="آپارتمان‌های مدرن" />
@@ -132,6 +144,49 @@ function Legend({ c, t }: { c: string; t: string }) {
 
 export function MissionsPanel() {
   const missions = useGame((s) => s.missions);
+  const worldPads = useGame((s) => s.worldPads);
+  const medalGiven = useGame((s) => s.medalGiven);
+  const has = (id: string) => worldPads.includes(id);
+  const solarDone = ["solar_a", "solar_b", "solar_c"].every(has);
+  const windDone = ["wind_a", "wind_b", "wind_c"].every(has);
+  const plantDone = ["plant_control", "plant_cooling", "plant_dome"].every(has);
+  const allBeforeMedal =
+    missions[0]?.state === "done" && solarDone && windDone && plantDone &&
+    ["safety_kid", "safety_flag", "crypto_door", "crypto_owner", "miner_1", "miner_2", "miner_3", "miner_4"].every(has);
+  const extras: { title: string; desc: string; done: boolean; tasks: { t: string; d: boolean }[]; icon: string }[] = [
+    {
+      icon: "☔",
+      title: "مأموریت ایمنی برق (کنار مسجد، دو خیابان بالاتر میدان)",
+      done: has("safety_kid") && has("safety_flag"),
+      desc: "آموزش ایمنی برق به کودکان و شهروندان",
+      tasks: [
+        { t: "نجات بچه از دست‌زدن به سیم لخت تیر روشنایی", d: has("safety_kid") },
+        { t: "هشدار درباره نصب پرچم نزدیک سیم‌های فشار ضعیف کنار مسجد", d: has("safety_flag") },
+      ],
+    },
+    {
+      icon: "🪧",
+      title: "مأموریت رمز ارز و تابلوی هوشمند محله",
+      done: ["crypto_door", "crypto_owner", "miner_1", "miner_2", "miner_3", "miner_4"].every(has),
+      desc: "جمع‌آوری ۴ دستگاه غیرمجاز رمز ارز و نصب لامپ LED",
+      tasks: [
+        { t: "اسکن ویلا و شناسایی ۴ دستگاه غیرمجاز", d: has("crypto_door") },
+        { t: "اخطار به صاحب‌خانه درباره جریمه‌های شرکت برق", d: has("crypto_owner") },
+        { t: "جمع‌آوری ۴ دستگاه رمز ارز", d: ["miner_1", "miner_2", "miner_3", "miner_4"].every(has) },
+        { t: "نصب ۵ لامپ کم‌مصرف و سبزشدن تابلوی هوشمند", d: ["led_1", "led_2", "led_3", "led_4", "led_5"].every(has) },
+      ],
+    },
+    {
+      icon: "🏅",
+      title: "تقدیر مدیرعامل شرکت توزیع نیروی برق استان بوشهر",
+      done: medalGiven,
+      desc: "دریافت مدال افتخار طلایی و تندیس همیار برق",
+      tasks: [
+        { t: "تکمیل همه مأموریت‌ها (مدیریت مصرف، خورشیدی، ایمنی، باد، هسته‌ای، رمز ارز)", d: allBeforeMedal },
+        { t: "رفتن به ساختمان ۶ طبقه شرکت توزیع نیروی برق و دیدار مدیرعامل", d: medalGiven },
+      ],
+    },
+  ];
   return (
     <Frame title="مأموریت‌های یار برق" icon="⭐">
       <div className="space-y-3">
@@ -154,6 +209,24 @@ export function MissionsPanel() {
                 </li>
               ))}
             </ul>
+          </div>
+        ))}
+        {extras.map((e) => (
+          <div key={e.title} className={`rounded-2xl border-4 p-3 ${e.done ? "border-green-300 bg-green-50" : "border-blue-100 bg-white"}`}>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{e.icon}</span>
+              <span className="font-black text-sm flex-1">{e.title}</span>
+              <span>{e.done ? "✅" : "⬜"}</span>
+            </div>
+            <div className="text-xs opacity-75 mt-1">{e.desc}</div>
+            <div className="mt-1.5 space-y-0.5">
+              {e.tasks.map((task) => (
+                <div key={task.t} className="flex items-center gap-2 text-[11px]">
+                  <span>{task.d ? "✅" : "▫️"}</span>
+                  <span className={task.d ? "line-through opacity-70" : ""}>{task.t}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
         <div className="rounded-2xl border-4 border-dashed border-blue-200 p-3 text-center text-sm">
@@ -359,7 +432,7 @@ export function HelpPanel() {
             <span>موس — چرخش دوربین</span>
             <span>Shift — دویدن</span>
             <span>Space — پرش</span>
-            <span>E — تعامل / صحبت / اسکن</span>
+            <span>E یا Enter — تعامل / صحبت / باز کردن در</span>
             <span>Q — روشن/خاموش کردن اسکنر</span>
             <span>M — نقشه</span>
             <span>Tab — مأموریت‌ها</span>
@@ -371,7 +444,7 @@ export function HelpPanel() {
             <span> stick چپ — حرکت</span>
             <span> stick راست — دوربین</span>
             <span> دکمه A — پرش</span>
-            <span> دکمه B — تعامل</span>
+            <span> دکمه B (معادل Enter) — تعامل</span>
             <span> دکمه X — اسکنر</span>
             <span> دکمه Y — نقشه</span>
             <span> LB — دویدن</span>

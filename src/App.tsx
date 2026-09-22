@@ -4,6 +4,7 @@ import { useGame } from "./game/store";
 import HUD from "./components/HUD";
 import { CinematicOverlay, HelpPanel, InventoryPanel, MainMenu, MapPanel, MissionsPanel, PauseMenu, SettingsPanel, StatsPanel, WorldsPanel } from "./components/Menus";
 import { CryptoPanel, DialogBox, MissionComplete, ScannerPanel, SolarPanelUI } from "./components/Panels";
+import { AdminGate, DashboardPanel, LeaderboardPanel, ProfileGate } from "./components/Panels2";
 import { audio } from "./game/audio";
 
 export default function App() {
@@ -19,6 +20,9 @@ export default function App() {
   const load = useGame((s) => s.load);
   const settings = useGame((s) => s.settings);
   const levelUpFlash = useGame((s) => s.levelUpFlash);
+  const registered = useGame((s) => s.registered);
+  const isNightLocked = useGame((s) => s.isNightLocked);
+  const toggleDayNight = useGame((s) => s.toggleDayNight);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -91,6 +95,25 @@ export default function App() {
       {panel === "dialog" && <DialogBox />}
       {panel === "solar" && <SolarPanelUI />}
       {panel === "crypto" && <CryptoPanel />}
+      {panel === "leaderboard" && <LeaderboardPanel />}
+      {panel === "admin" && <AdminGate />}
+      {panel === "dashboard" && <DashboardPanel />}
+
+      {/* ثبت‌نام / ویرایش نام قهرمان */}
+      {(phase === "menu" || phase === "playing") && !registered && panel === null && <ProfileGate />}
+      {panel === "profile" && <ProfileGate embedded />}
+
+      {/* دکمه سریع روز/شب */}
+      {!loading && panel === null && (
+        <button
+          onClick={toggleDayNight}
+          title="تغییر روز و شب"
+          className="fixed top-[78px] left-3 z-40 w-11 h-11 rounded-full shadow-lg border-2 border-white/70 text-xl flex items-center justify-center transition hover:scale-110"
+          style={{ background: isNightLocked ? "#16315c" : "#7ec8ff" }}
+        >
+          {isNightLocked ? "🌙" : "☀️"}
+        </button>
+      )}
       {panel === "missionComplete" && <MissionComplete />}
       {panel === "map" && <MapPanel />}
       {panel === "worlds" && <WorldsPanel engine={engine} />}

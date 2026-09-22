@@ -35,6 +35,11 @@ export default function MapView({ size, labels, region = 1 }: Props) {
     if (activeMission.id === 1) target = o?.id === "talk" ? { x: -7, z: 12.5 } : { x: -13, z: 16 };
     else if (activeMission.id === 2) target = o?.id === "roof" ? { x: -11.2, z: 8.5 } : { x: -17, z: 15 };
     else target = { x: 10.5, z: 3 };
+    // نشانگر مأموریت ایمنی بعد از مأموریت اول
+    if (missions[0]?.state === "done") {
+      if (!worldPads.includes("safety_kid")) target = { x: -5.0, z: 75 };
+      else if (!worldPads.includes("safety_flag")) target = { x: 9.2, z: 96 };
+    }
   } else if (region >= 2) {
     const next = pads.find((p) => !worldPads.includes(p.id));
     if (next) target = { x: next.x, z: next.z };
@@ -67,6 +72,12 @@ export default function MapView({ size, labels, region = 1 }: Props) {
             <rect key={i} x={sx(x)} y={sz(z)} width={sx(x + hw) - sx(x)} height={sz(z + hd) - sz(z)} fill={i === 0 && done1 ? "#bde8a8" : c} stroke="#6b5a3e" strokeWidth={1} rx={2} />
           ))}
           <rect x={sx(-17)} y={sz(46)} width={sx(-11) - sx(-17)} height={sz(50) - sz(46)} fill="#3f7a4a" stroke="#1f3a2a" rx={2} />
+          {/* ساختمان شرکت توزیع برق */}
+          <rect x={sx(10.4)} y={sz(33.6)} width={sx(24.2) - sx(10.4)} height={sz(46.4) - sz(33.6)} fill="#d9c08a" stroke="#7a5a30" rx={2} />
+          {/* مسجد و مأموریت ایمنی */}
+          <rect x={sx(9.3)} y={sz(82.8)} width={sx(20.7) - sx(9.3)} height={sz(93.2) - sz(82.8)} fill="#3aa788" stroke="#1d5c4a" rx={8} />
+          {!worldPads.includes("safety_kid") && <circle cx={sx(-5.0)} cy={sz(75)} r={6} fill="#7fb6ff" stroke="#1d4f9a" strokeWidth={1.5} />}
+          {!worldPads.includes("safety_flag") && <circle cx={sx(9.2)} cy={sz(96)} r={6} fill="#7fb6ff" stroke="#1d4f9a" strokeWidth={1.5} />}
         </>
       )}
       {region === 2 && (

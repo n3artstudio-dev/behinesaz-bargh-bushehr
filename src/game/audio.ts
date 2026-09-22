@@ -12,6 +12,7 @@ class AudioSys {
   musicTimer?: number;
   gullTimer?: number;
   lastStep = 0;
+  private seaNear = false;
 
   init() {
     if (this.started) return;
@@ -97,17 +98,20 @@ class AudioSys {
     wind.start();
     wl.start();
 
-    // Gulls occasionally
-    const gull = () => {
-      this.gull();
-      this.gullTimer = window.setTimeout(gull, 4000 + Math.random() * 9000);
-    };
-    this.gullTimer = window.setTimeout(gull, 2500);
+  // Gulls occasionally — با فاصله از ساحل پرتکرارتر
+  const gull = () => {
+    this.gull();
+    const near = this.seaNear;
+    this.gullTimer = window.setTimeout(gull, (near ? 1400 : 5000) + Math.random() * (near ? 3500 : 9000));
+  };
+  this.seaNear = false;
+  this.gullTimer = window.setTimeout(gull, 1500);
   }
 
   setSeaDistance(d: number) {
+    this.seaNear = d < 14;
     if (!this.ctx || !this.seaGain) return;
-    const g = Math.max(0.08, Math.min(0.45, 0.45 - d * 0.004));
+    const g = Math.max(0.08, Math.min(0.5, 0.5 - d * 0.004));
     this.seaGain.gain.setTargetAtTime(g, this.ctx.currentTime, 0.5);
   }
 
@@ -219,6 +223,68 @@ class AudioSys {
   warn() {
     this.tone(330, 0.2, "square", 0.06);
     this.tone(262, 0.3, "square", 0.06, 0.2);
+  }
+  applause(dur = 5) {
+    // کف زدن جمعیت: صدها ضربه نویز کوتاه تصادفی
+    const t0 = this.ctx?.currentTime ?? 0;
+    const n = Math.floor(dur * 90);
+    for (let i = 0; i < n; i++) {
+      const when = Math.random() * dur;
+      const src = this.ctx!.createBufferSource();
+      src.buffer = this.whiteNoiseBuffer(0.05);
+      const f = this.ctx!.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 1800 + Math.random() * 1200;
+      const g = this.ctx!.createGain();
+      const tt = t0 + when;
+      g.gain.setValueAtTime(0, tt);
+      g.gain.linearRampToValueAtTime(0.04 + Math.random() * 0.05, tt + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0005, tt + 0.05);
+      src.connect(f).connect(g).connect(this.sfxGain);
+      src.start(tt);
+      src.stop(tt + 0.07);
+    }
+    // هلهله شادی (آکورد پایانی)
+    [392, 523, 659, 784, 1047].forEach((fr, i) => this.tone(fr, 1.2, "triangle", 0.08, dur - 1.2 + i * 0.04));
+  }
+  private rainNode?: { src: AudioBufferSourceNode; g: GainNode };
+  rain(on: boolean) {
+    if (!this.ctx) return;
+    if (on && !this.rainNode) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.whiteNoiseBuffer(2);
+      src.loop = true;
+      const f = this.ctx.createBiquadFilter();
+      f.type = "highpass";
+      f.frequency.value = 900;
+      const f2 = this.ctx.createBiquadFilter();
+      f2.type = "lowpass";
+      f2.frequency.value = 6000;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      g.gain.linearRampToValueAtTime(0.12, this.ctx.currentTime + 0.8);
+      src.connect(f).connect(f2).connect(g).connect(this.ambGain);
+      src.start();
+      this.rainNode = { src, g };
+    } else if (!on && this.rainNode) {
+      const rn = this.rainNode;
+      rn.g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6);
+      setTimeout(() => {
+        try {
+          rn.src.stop();
+        } catch {
+          /* noop */
+        }
+      }, 800);
+      this.rainNode = undefined;
+    }
+  }
+  private whiteNoiseBuffer(seconds: number) {
+    const ctx = this.ctx!;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
   }
   footstep(running: boolean) {
     if (!this.ctx) return;

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { mat } from "./characters";
+import { Character, mat } from "./characters";
 import { asphaltTex, plasterTex, sandTex, solarTex } from "./textures";
 import type { World } from "./world";
 
@@ -19,6 +19,7 @@ export const WORLD_SPAWNS: Record<number, THREE.Vector3> = {
   3: new THREE.Vector3(0, 0.12, 258),
   4: new THREE.Vector3(0, 0.12, 402),
   5: new THREE.Vector3(0, 0.12, 550),
+  6: new THREE.Vector3(0, 0.12, 660),
 };
 
 export const WORLD_INFO = [
@@ -26,12 +27,12 @@ export const WORLD_INFO = [
   { id: 2, name: "شهر خورشیدی", icon: "☀️", color: "#ffb400", z0: 106, z1: 240, desc: "نصب و سرویس پنل‌های خورشیدی روی پشت‌بام‌ها" },
   { id: 3, name: "منطقه انرژی بادی", icon: "💨", color: "#39c7e8", z0: 246, z1: 386, desc: "بازرسی و نگهداری توربین‌های بادی" },
   { id: 4, name: "شهر انرژی پیشرفته", icon: "⚛️", color: "#b06bff", z0: 390, z1: 532, desc: "ایمنی و پایش نیروگاه هسته‌ای بوشهر" },
-  { id: 5, name: "محله رمز ارز — تابلوی هوشمند", icon: "🪧", color: "#e8453c", z0: 538, z1: 620, desc: "جمع‌آوری دستگاه‌های غیرمجاز و نصب لامپ کم‌مصرف" },
+  { id: 5, name: "محله رمز ارز — تابلوی هوشمند", icon: "🪧", color: "#e8453c", z0: 538, z1: 624, desc: "جمع‌آوری دستگاه‌های غیرمجاز و نصب لامپ کم‌مصرف" },
 ];
 
 export const PAD_DEFS: PadDef[] = [
   { id: "solar_a", world: 2, x: -14, z: 148, label: "نصب ردیف پنل خورشیدی ۱", doneLabel: "ردیف ۱ نصب شد" },
-  { id: "solar_b", world: 2, x: 0, z: 178, label: "نصب ردیف پنل خورشیدی ۲", doneLabel: "ردیف ۲ نصب شد" },
+  { id: "solar_b", world: 2, x: -14, z: 186, label: "نصب ردیف پنل خورشیدی ۲", doneLabel: "ردیف ۲ نصب شد" },
   { id: "solar_c", world: 2, x: 14, z: 208, label: "تمیز کردن و سرویس پنل‌ها", doneLabel: "پنل‌ها سرویس شد" },
   { id: "wind_a", world: 3, x: -16, z: 286, label: "بازرسی توربین بادی ۱", doneLabel: "توربین ۱ سالم است" },
   { id: "wind_b", world: 3, x: 12, z: 312, label: "بازرسی توربین بادی ۲", doneLabel: "توربین ۲ سالم است" },
@@ -58,6 +59,9 @@ export const PAD_DEFS: PadDef[] = [
     label: `نصب لامپ LED محله ${i + 1}`,
     doneLabel: "نصب شد",
   })),
+  // مأموریت ایمنی برق — داخل شهر اول، دو خیابان بالاتر از میدان
+  { id: "safety_kid", world: 1, x: -5.0, z: 75, label: "کمک به بچه و هشدار برق‌گرفتگی", doneLabel: "بچه از سیم‌ها دور شد" },
+  { id: "safety_flag", world: 1, x: 9.2, z: 96, label: "هشدار درباره نصب پرچم نزدیک سیم", doneLabel: "پرچم‌ها با فاصله ایمن نصب شدند" },
 ];
 
 export interface ExtraZones {
@@ -180,6 +184,30 @@ export function makeMoped(frameColor = "#c0392b", shirt = "#1e4f9a") {
   return g;
 }
 
+/* کارخانه‌ی تابلوی هوشمند محله (قابل استفاده در جهان‌های مختلف) */
+export function createSmartBoard(width = 5.2, height = 3.25) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 320;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: tex }));
+  drawSmartBoard(canvas, 0, 1);
+  tex.needsUpdate = true;
+  let timer = 0;
+  return {
+    mesh,
+    canvas,
+    set(loadKw: number, maxKw: number, dt = 0.2) {
+      timer -= dt;
+      if (timer > 0) return;
+      timer = 0.2;
+      drawSmartBoard(canvas, loadKw, maxKw);
+      tex.needsUpdate = true;
+    },
+  };
+}
+
 function drawSmartBoard(canvas: HTMLCanvasElement, loadKw: number, maxKw: number) {
   const ctx = canvas.getContext("2d")!;
   const ratio = Math.max(0, Math.min(1, loadKw / maxKw));
@@ -254,14 +282,14 @@ export function buildExtraWorlds(w: World): ExtraZones {
   const portals: THREE.Mesh[] = [];
 
   /* ----- زمین و جادهٔ طولانی تا جهان چهارم ----- */
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 780), new THREE.MeshStandardMaterial({ map: sandTex([40, 66]), roughness: 1 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 900), new THREE.MeshStandardMaterial({ map: sandTex([40, 76]), roughness: 1 }));
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.02, 280);
+  ground.position.set(0, -0.02, 330);
   ground.receiveShadow = true;
   group.add(ground);
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 560), new THREE.MeshStandardMaterial({ map: asphaltTex([2, 70]), roughness: 0.95 }));
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 720), new THREE.MeshStandardMaterial({ map: asphaltTex([2, 90]), roughness: 0.95 }));
   road.rotation.x = -Math.PI / 2;
-  road.position.set(0, 0.05, 330);
+  road.position.set(0, 0.05, 350);
   road.receiveShadow = true;
   group.add(road);
   // خط‌کشی وسط جاده
@@ -273,13 +301,13 @@ export function buildExtraWorlds(w: World): ExtraZones {
   for (let y = 10; y < 256; y += 64) dctx.fillRect(26, y, 12, 34);
   const dashTex = new THREE.CanvasTexture(dashCanvas);
   dashTex.wrapS = dashTex.wrapT = THREE.RepeatWrapping;
-  dashTex.repeat.set(1, 40);
-  const dashes = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 560), new THREE.MeshBasicMaterial({ map: dashTex, transparent: true }));
+  dashTex.repeat.set(1, 56);
+  const dashes = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 720), new THREE.MeshBasicMaterial({ map: dashTex, transparent: true }));
   dashes.rotation.x = -Math.PI / 2;
-  dashes.position.set(0, 0.075, 330);
+  dashes.position.set(0, 0.075, 350);
   group.add(dashes);
   // چند نخل کنار جاده
-  for (let z = 90; z < 600; z += 26) {
+  for (let z = 90; z < 740; z += 26) {
     for (const sx of [-7.5, 7.5]) {
       if (Math.random() < 0.55) {
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, 5, 7), mat("#8a6a48", 0.95));
@@ -302,7 +330,7 @@ export function buildExtraWorlds(w: World): ExtraZones {
   const armGeo = new THREE.BoxGeometry(2.6, 0.12, 0.12);
   const insGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.25, 8);
   const poleMat = mat("#9aa1a8", 0.6, 0.5);
-  const nPoles = Math.floor((600 - 96) / 10);
+  const nPoles = Math.floor((760 - 96) / 10);
   const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, nPoles);
   const armMesh = new THREE.InstancedMesh(armGeo, poleMat, nPoles);
   const insMesh = new THREE.InstancedMesh(insGeo, mat("#e8f0f7", 0.3), nPoles * 3);
@@ -311,7 +339,7 @@ export function buildExtraWorlds(w: World): ExtraZones {
   const scl = new THREE.Vector3(1, 1, 1);
   const pos = new THREE.Vector3();
   let pi = 0;
-  for (let z = 96; z < 600; z += 10) {
+  for (let z = 96; z < 760; z += 10) {
     poleZs.push(z);
     pos.set(poleX, poleH / 2, z);
     d4.compose(pos, q4, scl);
@@ -788,6 +816,143 @@ export function buildExtraWorlds(w: World): ExtraZones {
     lines: ["به ساختمان من دست نزن جوان!"],
   });
   interactables.push({ id: "npc_cryptoowner", pos: new THREE.Vector3(-9.2, 0, 571.5), radius: 2.6, kind: "npc", label: "صحبت با صاحب ویلا" });
+
+  /* ================= مأموریت ایمنی برق — دو خیابان بالاتر میدان، کنار مسجد ================= */
+  const rainy = new THREE.MeshStandardMaterial({ map: plasterTex("#e4e8ec", [2, 2], 22), roughness: 0.9 });
+  // مسجد ساده با گنبد و گلدسته (سمت شرقی)
+  const mosque = new THREE.Group();
+  const mBody = new THREE.Mesh(new THREE.BoxGeometry(11, 5.5, 10), rainy);
+  mBody.position.set(15, 2.75, 88);
+  mBody.castShadow = mBody.receiveShadow = true;
+  mosque.add(mBody);
+  const domeM = mat("#3aa788", 0.7);
+  const dome6 = new THREE.Mesh(new THREE.SphereGeometry(2.6, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), domeM);
+  dome6.position.set(15, 5.5, 88);
+  dome6.castShadow = true;
+  mosque.add(dome6);
+  const crescent = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 6, 14), mat("#ffd23a", 0.3, 0.7));
+  crescent.position.set(15, 8.5, 88);
+  mosque.add(crescent);
+  for (const mx of [10.4, 19.6]) {
+    const min = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 8.5, 12), rainy);
+    min.position.set(mx, 4.25, 92);
+    min.castShadow = true;
+    mosque.add(min);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.2, 12), domeM);
+    cap.position.set(mx, 9, 92);
+    mosque.add(cap);
+  }
+  // سردر و پنجره‌های طاقی
+  const mDoor = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 0.15), mat("#24404a", 0.5));
+  mDoor.position.set(15, 1.3, 82.9);
+  mosque.add(mDoor);
+  group.add(mosque);
+  colliders.push({ minX: 9.3, maxX: 20.7, minZ: 82.8, maxZ: 93.2 });
+
+  // تیر فشار ضعیف روشنایی با سیم لخت آویزان (سمت غرب)
+  const dangerPole = new THREE.Group();
+  const dPole = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 7, 8), mat("#7d7568", 0.8));
+  dPole.position.y = 3.5;
+  dPole.castShadow = true;
+  dangerPole.add(dPole);
+  const dArm = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.1, 0.1), mat("#5a5448", 0.8));
+  dArm.position.set(0.7, 6.6, 0);
+  dangerPole.add(dArm);
+  // سیم لخت که پایین می‌آید (خط منحنی خطرناک)
+  const bareCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(1.5, 6.5, 0),
+    new THREE.Vector3(1.9, 5.4, 0.1),
+    new THREE.Vector3(1.4, 4.2, -0.1),
+    new THREE.Vector3(1.8, 3.1, 0.1),
+  ]);
+  const bareWire = new THREE.Mesh(new THREE.TubeGeometry(bareCurve, 16, 0.03, 6, false), mat("#111111", 0.6, 0.6));
+  dangerPole.add(bareWire);
+  // چراغ هشدار قرمز چشمک‌زن
+  const warnLamp = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat("#ff2020", 0.3, 0, "#ff0000", 2.5));
+  warnLamp.position.set(-0.5, 6.4, 0.3);
+  warnLamp.name = "warnLamp";
+  dangerPole.add(warnLamp);
+  dangerPole.position.set(-6.6, 0.12, 76);
+  group.add(dangerPole);
+  colliders.push({ minX: -6.9, maxX: -6.3, minZ: 75.6, maxZ: 76.4 });
+
+  // بچه‌ای که می‌خواهد به سیم دست بزند
+  const dangerBoy = new Character({ kind: "boy", shirt: "#d64545", pants: "#2c3e63" });
+  dangerBoy.root.position.set(-4.6, 0.12, 75.2);
+  dangerBoy.root.rotation.y = -Math.PI / 2.3;
+  group.add(dangerBoy.root);
+  w.npcSpawns.push({ id: "safety_boy", kind: "boy", path: [new THREE.Vector3(-4.6, 0.12, 75.2)], speed: 0, label: "بچهٔ بی‌احتیاط", lines: ["..."] });
+
+  // دو تیر فشار ضعیف نزدیک مسجد و چهار پایه نصب پرچم
+  for (const [px, pz] of [
+    [7.6, 100],
+    [10.4, 100],
+  ] as [number, number][]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 8, 8), mat("#7d7568", 0.8));
+    p.position.set(px, 4, pz);
+    p.castShadow = true;
+    group.add(p);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2), mat("#5a5448", 0.8));
+    arm.position.set(px, 7.6, pz);
+    group.add(arm);
+    const wireL = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(px, 7.6, pz - 1), new THREE.Vector3(px, 7.0, pz), new THREE.Vector3(px, 7.6, pz + 1)), 8, 0.025, 5), mat("#111", 0.6, 0.6));
+    group.add(wireL);
+  }
+  // چهار پایه نصب پرچم توسط مردم
+  const stand = new THREE.Group();
+  for (const [sx, sz] of [
+    [-0.9, -0.9],
+    [0.9, -0.9],
+    [-0.9, 0.9],
+    [0.9, 0.9],
+  ] as [number, number][]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6), mat("#c0392b", 0.5, 0.4));
+    leg.position.set(sx, 0.9, sz);
+    leg.rotation.x = sz * 0.12;
+    leg.rotation.z = -sx * 0.12;
+    stand.add(leg);
+  }
+  const fPole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 4.2, 8), mat("#cccccc", 0.4, 0.7));
+  fPole.position.y = 2.6;
+  stand.add(fPole);
+  const fCloth = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7), new THREE.MeshStandardMaterial({ color: "#239f40", side: THREE.DoubleSide }));
+  fCloth.position.set(0.62, 4.1, 0);
+  stand.add(fCloth);
+  stand.position.set(9.0, 0.12, 102);
+  stand.rotation.y = 0.3;
+  group.add(stand);
+  // چهار مرد نصب‌کننده پرچم
+  const shirtCols = ["#3a5a8a", "#8a4a3a", "#3a7a4a", "#6a5a2a"];
+  for (let i = 0; i < 4; i++) {
+    const man = new Character({ kind: "man", shirt: shirtCols[i], pants: "#2b2f3a" });
+    const ang = (i / 4) * Math.PI * 2;
+    man.root.position.set(9.0 + Math.cos(ang) * 2.0, 0.12, 102 + Math.sin(ang) * 2.0);
+    man.root.rotation.y = Math.atan2(9.0 - man.root.position.x, 102 - man.root.position.z);
+    group.add(man.root);
+    w.npcSpawns.push({ id: `flagman${i + 1}`, kind: "man", path: [new THREE.Vector3(man.root.position.x, 0.12, man.root.position.z)], speed: 0, label: "نصاب پرچم", lines: ["..."] });
+  }
+  // چند چاله آب باران روی سنگفرش
+  const puddleM = new THREE.MeshBasicMaterial({ color: "#2e5a78", transparent: true, opacity: 0.5 });
+  for (const [px, pz, r] of [
+    [-2, 72, 1.1],
+    [2.8, 80, 0.9],
+    [-2.6, 90, 1.4],
+    [3.2, 98, 1.0],
+  ] as [number, number, number][]) {
+    const pu = new THREE.Mesh(new THREE.CircleGeometry(r, 20), puddleM);
+    pu.rotation.x = -Math.PI / 2;
+    pu.position.set(px, 0.09, pz);
+    group.add(pu);
+  }
+  // نشانگرهای مأموریت
+  for (const id of ["safety_kid", "safety_flag"]) {
+    const def = PAD_DEFS.find((p) => p.id === id)!;
+    const mk = makePadMarker("#3d7fd6");
+    mk.position.set(def.x, 0, def.z);
+    group.add(mk);
+    padVisuals[id] = { marker: mk, reward: new THREE.Object3D() };
+    interactables.push({ id, pos: new THREE.Vector3(def.x, 0, def.z), radius: 2.8, kind: "pad", label: def.label });
+  }
 
   /* ----- نشانگر هر پد: حلقه چرخان + آذرخش شناور ----- */
   function makePadMarker(color: string) {

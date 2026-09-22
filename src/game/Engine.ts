@@ -25,6 +25,52 @@ interface Vehicle {
   lastDing: number;
 }
 
+/* باران */
+class Rain {
+  lines: THREE.LineSegments;
+  private pos: Float32Array;
+  private count = 1100;
+  constructor(scene: THREE.Scene) {
+    this.pos = new Float32Array(this.count * 6);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
+    const m = new THREE.LineBasicMaterial({ color: "#bcd6f5", transparent: true, opacity: 0.4 });
+    this.lines = new THREE.LineSegments(geo, m);
+    this.lines.frustumCulled = false;
+    this.lines.visible = false;
+    for (let i = 0; i < this.count; i++) {
+      this.pos[i * 6] = (Math.random() - 0.5) * 60;
+      this.pos[i * 6 + 1] = Math.random() * 40;
+      this.pos[i * 6 + 2] = (Math.random() - 0.5) * 60;
+      this.pos[i * 6 + 3] = this.pos[i * 6] - 0.15;
+      this.pos[i * 6 + 4] = this.pos[i * 6 + 1] - 1;
+      this.pos[i * 6 + 5] = this.pos[i * 6 + 2] + 0.1;
+    }
+    scene.add(this.lines);
+  }
+  update(dt: number, active: boolean, center: THREE.Vector3) {
+    this.lines.visible = active;
+    if (!active) return;
+    const arr = this.pos;
+    for (let i = 0; i < this.count; i++) {
+      arr[i * 6 + 1] -= dt * 26;
+      arr[i * 6 + 4] -= dt * 26;
+      if (arr[i * 6 + 1] < 0) {
+        const rx = center.x + (Math.random() - 0.5) * 60;
+        const rz = center.z + (Math.random() - 0.5) * 60;
+        const y = 30 + Math.random() * 15;
+        arr[i * 6] = rx;
+        arr[i * 6 + 2] = rz;
+        arr[i * 6 + 1] = y;
+        arr[i * 6 + 3] = rx - 0.15;
+        arr[i * 6 + 4] = y - 1;
+        arr[i * 6 + 5] = rz + 0.1;
+      }
+    }
+    (this.lines.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+  }
+}
+
 // Characters walk slightly above the visual ground surfaces (sidewalks, promenade, etc.)
 const GROUND_Y = 0.12;
 const tmpV = new THREE.Vector3();
@@ -144,6 +190,11 @@ export class Engine {
   saveT = 0;
   touch = { x: 0, y: 0, run: false };
   particles!: ParticleBurst;
+  rain!: Rain;
+  activeNpcId: string | null = null;
+  fireworkT = -10;
+  medalStarted = false;
+  syncedPads = new Set<string>();
   glide: "none" | "up" | "fly" | "down" = "none";
   glideStart = new THREE.Vector3();
   glideTarget = 50;
@@ -181,10 +232,10 @@ export class Engine {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight("#fff2d6", 2.4);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(q === "high" ? 2048 : 1024, q === "high" ? 2048 : 1024);
+    this.sun.shadow.mapSize.set(q === "high" ? 1536 : 768, q === "high" ? 1536 : 768);
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 220;
-    const s = 38;
+    const s = 30;
     this.sun.shadow.camera.left = -s;
     this.sun.shadow.camera.right = s;
     this.sun.shadow.camera.top = s;
@@ -199,6 +250,7 @@ export class Engine {
     this.scene.add(this.world.group);
     this.zones = buildExtraWorlds(this.world);
     this.particles = new ParticleBurst(this.scene);
+    this.rain = new Rain(this.scene);
     // restore completed world pads from save
     for (const id of useGame.getState().worldPads) this.zones.setPad(id, true);
 
@@ -231,10 +283,12 @@ export class Engine {
 
     // دوچرخه‌سوارها و موتورسوارها در خیابان
     const bikeDefs: [number, number, number, number][] = [
-      [-2.7, 7.5, 1, 0],
-      [2.7, 7.0, -1, 120],
-      [-2.7, 11.5, 1, 260],
-      [2.7, 11.0, -1, 380],
+      [-3.2, 7.5, 1, 40],
+      [3.2, 7.0, -1, 150],
+      [-3.2, 11.5, 1, 280],
+      [3.2, 11.0, -1, 400],
+      [-3.2, 9.0, 1, 560],
+      [3.2, 8.5, -1, 620],
     ];
     bikeDefs.forEach(([x, speed, dir, z0], i) => {
       const isBike = i < 2;
@@ -243,7 +297,8 @@ export class Engine {
       if (dir < 0) g.rotation.y = Math.PI;
       this.scene.add(g);
       const wheels = (g.userData.wheels as THREE.Mesh[]) ?? [];
-      this.vehicles.push({ g, speed, dir, x, z0: -30, z1: 610, wheels, lastDing: 0 });
+      this.vehicles.push({ g, speed, dir, x, z0: 2, z1: dir > 0 ? 740 : 740, wheels, lastDing: 0 });
+      g.position.z = Math.min(740, Math.max(2, g.position.z));
     });
 
     this.prevSolar = useGame.getState().solarLevel;
@@ -281,7 +336,7 @@ export class Engine {
       return;
     }
     this.keys.add(k);
-    if (k === "e") this.interact();
+    if (k === "e" || k === "enter") this.interact();
     if (k === "f") this.toggleGlider();
     if (k === "q") {
       if (!st.scannerUnlocked) st.toast("اول باید مأموریت را از خانم فاطمه بگیری", "warn");
@@ -434,6 +489,7 @@ export class Engine {
         const id = it.id.replace("npc_", "");
         const sp = this.world.npcSpawns.find((n) => n.id === id)!;
         const npc = this.npcs.find((n) => n.id === id);
+        this.activeNpcId = id;
         if (npc) {
           const d = tmpV.subVectors(this.pos, npc.char.root.position);
           npc.char.root.rotation.y = Math.atan2(d.x, d.z);
@@ -444,7 +500,28 @@ export class Engine {
         let onEnd: string | undefined;
         if (id === "fatemeh") {
           onEnd = "talk";
-          lines = done1 ? (st.missions[0].state === "done" ? ["خیلی ممنون محمد پارسا! قبض برق ما نصف شد.", "حالا برو پشت‌بام و پنل خورشیدی رو نصب کن تا برق پاک تولید کنیم."] : ["برو داخل و با Q اسکنر رو روشن کن. مشکل‌ها رو پیدا کن!"]) : sp.lines;
+          lines = done1 ? (st.missions[0].state === "done" ? [`خیلی ممنون ${st.playerName}! قبض برق ما نصف شد.`, "حالا برو پشت‌بام و پنل خورشیدی رو نصب کن تا برق پاک تولید کنیم."] : ["برو داخل و با Q اسکنر رو روشن کن. مشکل‌ها رو پیدا کن!"]) : sp.lines;
+        }
+        if (id === "ceo") {
+          const allDone =
+            st.missions[0].state === "done" &&
+            ["solar_a", "solar_b", "solar_c", "wind_a", "wind_b", "wind_c", "plant_control", "plant_cooling", "plant_dome", "safety_kid", "safety_flag", "crypto_door", "crypto_owner", "miner_1", "miner_2", "miner_3", "miner_4", "led_1", "led_2", "led_3", "led_4", "led_5"].every((p) => st.worldPads.includes(p));
+          if (st.medalGiven) {
+            lines = ["تبریک می‌گویم همیار برق! تو یک الگو برای کودکان و شهروندان بوشهر هستی.", "هر وقت نکته‌ی تازه‌ای یاد گرفتی، بیا پیش ما تا با هم به مردم آموزش بدهیم."];
+          } else if (!allDone) {
+            lines = [
+              "به ساختمان شرکت توزیع نیروی برق خوش آمدی همیار برق!",
+              "هنوز مأموریت‌هایی در شهرهای انرژی و شهرک ایمنی باقی مانده؛ برو کاملشان کن و بعد برگرد.",
+              "کارشناسان ما همیشه آماده‌اند نکات ایمنی و مدیریت مصرف را به تو آموزش دهند.",
+            ];
+          } else {
+            onEnd = "hq_medal";
+            lines = [
+              "همیار برق عزیز! از تو صمیمانه سپاسگزارم.",
+              "تو در کاهش مصرف برق در استان و کشور با ما سهیم شدی و نکات ارزشمندی درباره ایمنی، مدیریت مصرف و خطر دستگاه‌های رمز ارز غیرمجاز به شهروندان آموختی.",
+              "ما به همیاران برق خود افتخار می‌کنیم؛ این مدال افتخار طلایی و تندیس برق از طرف شرکت توزیع نیروی برق استان بوشهر به تو اهدا می‌شود.",
+            ];
+          }
         }
         if (id === "cryptoowner") {
           if (!st.worldPads.includes("crypto_door")) {
@@ -506,13 +583,13 @@ export class Engine {
         break;
       case "worldgate": {
         const n = parseInt(it.id.replace("gate_", ""), 10);
-        const gateZ = [108, 250, 392, 536][n - 2];
+        const gateZ = [108, 250, 392, 536, 628][n - 2];
         const goingForward = this.pos.z < gateZ;
         if (goingForward) {
           if (!isWorldUnlocked(st.missions, st.worldPads, n)) {
             const lockMsg: Record<number, string> = {
               2: "اول مأموریت بوشهر را کامل کن",
-              3: "اول مأموریت شهر خورشیدی را کامل کن",
+              3: "اول مأموریت خورشیدی و مأموریت ایمنی کنار مسجد را کامل کن",
               4: "اول مأموریت انرژی بادی را کامل کن",
               5: "اول بازدید نیروگاه اتمی را کامل کن",
             };
@@ -553,6 +630,42 @@ export class Engine {
           this.particles.burst(this.pos.clone().add(new THREE.Vector3(0, 1.5, 0)), 20, "#ff5a4d");
           break;
         }
+        if (it.id === "safety_kid") {
+          if (st.worldPads.includes(it.id)) {
+            st.toast("این نکته ایمنی را قبلاً یاد دادی ✓", "info");
+            break;
+          }
+          this.activeNpcId = "safety_boy";
+          st.openDialog({
+            speaker: `${st.playerName} (همیار برق)`,
+            lines: [
+              "پسر جان! صبر کن، به سیم لخت تیر برق دست نزن!",
+              "تیرهای برق و سیم‌های آن‌ها ولتاژ بالایی دارند؛ به‌خصوص در روزهای بارانی که هوا مرطوب است، برق به راحتی از آب عبور می‌کند و باعث برق‌گرفتگی می‌شود.",
+              "اگر سیم افتاده یا آسیب‌دیده دیدی، هرگز نزدیک نشو و فوراً با شماره ۱۲۱ شرکت توزیع برق تماس بگیر.",
+            ],
+            index: 0,
+            onEnd: "safety_kid",
+          });
+          break;
+        }
+        if (it.id === "safety_flag") {
+          if (st.worldPads.includes(it.id)) {
+            st.toast("پرچم‌ها با فاصله ایمن نصب شده‌اند ✓", "info");
+            break;
+          }
+          this.activeNpcId = "flagman1";
+          st.openDialog({
+            speaker: `${st.playerName} (همیار برق)`,
+            lines: [
+              "آقایان! لطفاً پرچم‌ها را این‌قدر نزدیک سیم‌های برق نصب نکنید.",
+              "پایه پرچم و میله‌های بلند باید حداقل ۳ متر از سیم‌های برق فاصله داشته باشند؛ برخورد میله با سیم باعث خطر برق‌گرفتگی، آتش‌سوزی و قطعی برق محله می‌شود.",
+              "برای نصب داربست، چهارپایه و پرچم همیشه فاصله ایمن را رعایت کنید؛ مخصوصاً نزدیک مسجد و محل رفت‌وآمد مردم.",
+            ],
+            index: 0,
+            onEnd: "safety_flag",
+          });
+          break;
+        }
         st.completePad(it.id);
         this.zones.setPad(it.id, true);
         const col = it.id.startsWith("led_") ? "#2fd04a" : it.id.startsWith("miner_") ? "#ff5a4d" : "#ffd23a";
@@ -567,6 +680,9 @@ export class Engine {
 
   resetPads() {
     this.zones.reset();
+    this.medalStarted = false;
+    this.hero.setMedal(false);
+    audio.rain(false);
   }
 
   travelWorld(n: number) {
@@ -914,7 +1030,8 @@ export class Engine {
     this.camPos.copy(p);
     this.camLook.copy(l);
     const st = useGame.getState();
-    const cap = this.cineT < 5 ? "خلیج فارس — بوشهر، شهر انرژی‌های پاک" : this.cineT < 11 ? "کوچه‌های شناشیر، خانه‌هایی که با باد و سایه خنک می‌شدند..." : this.cineT < 17 ? "اما امروز، مصرف برق در ساعت اوج (۱۳ تا ۱۸) شبکه را زیر فشار می‌برد" : "شهر به کمک تو نیاز دارد، محمد پارسا! تو «یار برق» محله‌ای";
+    const heroName = useGame.getState().playerName;
+    const cap = this.cineT < 5 ? "خلیج فارس — بوشهر، شهر انرژی‌های پاک" : this.cineT < 11 ? "کوچه‌های شناشیر، خانه‌هایی که با باد و سایه خنک می‌شدند..." : this.cineT < 17 ? "اما امروز، مصرف برق در ساعت اوج (۱۳ تا ۱۸) شبکه را زیر فشار می‌برد" : `شهر به کمک تو نیاز دارد، ${heroName}! تو «یار برق» محله‌ای`;
     if (st.cinematicText !== cap) st.setCinematicText(cap);
     this.hero.update(dt, 0, false, this.sinceStart);
     this.hero.root.rotation.y = this.cineT > 17 ? 0 : Math.PI * 0.85;
@@ -923,9 +1040,24 @@ export class Engine {
 
   /* ---------------- NPCs ---------------- */
   private updateNpcs(dt: number) {
+    const st0 = useGame.getState();
+    const inDialog = st0.panel === "dialog";
     for (const n of this.npcs) {
       const c = n.char;
       let speedNorm = 0;
+      // موقع صحبت، همه بایستند و گوینده رو به محمد پارسا کند
+      if (inDialog) {
+        if (n.id === this.activeNpcId) {
+          const d = tmpV.subVectors(this.pos, c.root.position);
+          const th = Math.atan2(d.x, d.z);
+          let dh = th - c.root.rotation.y;
+          while (dh > Math.PI) dh -= Math.PI * 2;
+          while (dh < -Math.PI) dh += Math.PI * 2;
+          c.root.rotation.y += dh * Math.min(1, dt * 8);
+        }
+        c.update(dt, 0, false, this.sinceStart);
+        continue;
+      }
       if (n.speed > 0 && n.path.length > 1) {
         const target = n.path[n.idx];
         const d = tmpV.subVectors(target, c.root.position);
@@ -976,6 +1108,8 @@ export class Engine {
     // وسایل نقلیه در خیابان
     for (const v of this.vehicles) {
       v.g.position.z += v.speed * v.dir * dt;
+      // فقط روی آسفالت؛ هرگز وارد دریا یا پیاده‌رو نشوند
+      v.g.position.x = v.x;
       if (v.dir > 0 && v.g.position.z > v.z1) v.g.position.z = v.z0;
       if (v.dir < 0 && v.g.position.z < v.z0) v.g.position.z = v.z1;
       const spin = (v.speed * v.dir * dt) / 0.42;
@@ -999,6 +1133,20 @@ export class Engine {
     }
   }
 
+  private cullDistantLights() {
+    const lights = this.scene.children;
+    for (const root of lights) {
+      root.traverse((o) => {
+        const l = o as THREE.PointLight;
+        if (!l.isPointLight || l.distance <= 0) return;
+        if (l.userData.base === undefined) l.userData.base = l.intensity;
+        const desired = l.userData.cur ?? l.userData.base;
+        const d = l.position.distanceTo(this.pos);
+        l.intensity = d > l.distance + 8 || (l.distance < 40 && d > 45) ? 0 : desired;
+      });
+    }
+  }
+
   /* بازیکن نباید از بدن مردم رد شود */
   private pushOutOfPeople() {
     for (const n of this.npcs) {
@@ -1019,8 +1167,8 @@ export class Engine {
     const st = useGame.getState();
     const t = this.sinceStart;
     const w = this.world;
-    // time of day
-    if (this.mode === "play" && st.phase === "playing" && !st.panel) st.tickTime(dt * 1.7);
+    // time of day — پیش‌فرض روی روز قفل است؛ با دکمه روز/شب عوض می‌شود
+    if (this.mode === "play" && st.phase === "playing" && !st.panel && !st.timeLocked) st.tickTime(dt * 0.6);
     const time = st.time;
     const h = (time % 1440) / 60;
     const dayT = THREE.MathUtils.clamp((h - 6) / 12, -0.2, 1.2);
@@ -1034,21 +1182,26 @@ export class Engine {
     this.sun.position.copy(this.pos).addScaledVector(sunDir, 80);
     this.sun.target.position.copy(this.pos);
     this.sun.target.updateMatrixWorld();
-    this.hemi.intensity = 0.8 * (1 - night) + 0.22;
+    this.hemi.intensity = 0.8 * (1 - night) + 0.45;
     this.hemi.color.set("#bfe3ff").lerp(new THREE.Color("#22304f"), night);
     this.hemi.groundColor.set("#d9c39a").lerp(new THREE.Color("#0f1424"), night);
-    this.moon.intensity = night * 14;
-    this.moon.position.set(this.pos.x, 12, this.pos.z);
+    this.moon.intensity = night * 45;
+    this.moon.distance = 200;
+    this.moon.decay = 1.2;
+    this.moon.position.set(this.pos.x, 18, this.pos.z);
     const haze = 1 - st.neighborhood / 200;
-    const horizon = new THREE.Color("#cbeaff").lerp(new THREE.Color("#ffb46b"), dusk * 0.85).lerp(new THREE.Color("#0b1330"), night);
+    const safetyDone = ["safety_kid", "safety_flag"].every((p) => st.worldPads.includes(p));
+    const safetyZone = !safetyDone && this.pos.z > 66 && this.pos.z < 108;
+    const horizon = new THREE.Color("#cbeaff").lerp(new THREE.Color("#7f8fa6"), st.weather === "rain" || safetyZone ? 0.6 : 0).lerp(new THREE.Color("#ffb46b"), dusk * 0.85).lerp(new THREE.Color("#0b1330"), night);
     const top = new THREE.Color("#1e8ee8").lerp(new THREE.Color("#3a4a9a"), dusk * 0.6).lerp(new THREE.Color("#02040d"), night);
     w.sky.uniforms.uTop.value.copy(top);
     w.sky.uniforms.uHorizon.value.copy(horizon);
     w.sky.uniforms.uSunDir.value.copy(sunDir);
     w.sky.uniforms.uSunColor.value.copy(sunColor);
     w.sky.uniforms.uNight.value = night;
+    w.sky.uniforms.uTime.value = t;
     (this.scene.fog as THREE.FogExp2).color.copy(horizon);
-    (this.scene.fog as THREE.FogExp2).density = 0.003 + 0.0016 * haze + (st.weather === "haze" ? 0.002 : 0);
+    (this.scene.fog as THREE.FogExp2).density = 0.003 + 0.0016 * haze + (st.weather === "haze" ? 0.002 : 0) + (st.weather === "rain" || safetyZone ? 0.005 : 0);
     w.water.uniforms.uTime.value = t;
     w.water.uniforms.uSunDir.value.copy(sunDir);
     w.water.uniforms.uNight.value = night;
@@ -1067,6 +1220,24 @@ export class Engine {
       m.emissive.set(led ? "#dff6ff" : "#ff9f2e");
       m.emissiveIntensity = lampOn ? 3 : 0;
     }
+    // چراغ‌های LED دو طرف خیابان (همیشه LED)
+    for (const l of w.nightLamps) {
+      const m = l.material as THREE.MeshStandardMaterial;
+      m.emissiveIntensity = lampOn ? 5 : 0.15;
+    }
+    for (const pl of w.streetLights) {
+      const desired = lampOn ? 55 : 0;
+      const far = pl.position.distanceTo(this.pos) > 34;
+      pl.intensity = far ? 0 : desired;
+    }
+    // ماه کامل در آسمان شب
+    {
+      const moonDir = new THREE.Vector3(-sunDir.x, 0.55, -sunDir.z).normalize();
+      w.moonMesh.position.copy(this.camera.position).addScaledVector(moonDir, 700);
+      w.moonMesh.lookAt(this.camera.position);
+      w.moonMesh.visible = night > 0.25;
+      (w.moonMesh.material as THREE.MeshBasicMaterial).opacity = Math.min(0.95, night);
+    }
     w.windows.forEach((win, i) => {
       const m = this.glowMats.get(win)!;
       m.emissiveIntensity = lampOn ? (i % 3 === 0 ? 0.2 : 1.4) : 0;
@@ -1080,16 +1251,31 @@ export class Engine {
       b.mesh.rotation.x = Math.sin(t * 0.5 + b.phase) * 0.03;
       if (b.drift > 0) b.mesh.position.x = b.base.x + Math.sin(t * 0.05 + b.phase) * 20 * b.drift;
     }
-    for (const g of w.gulls) {
-      g.userData.angle += dt * 0.35;
-      const a = g.userData.angle;
-      g.position.set(g.userData.cx + Math.cos(a) * g.userData.r, g.userData.h + Math.sin(a * 2) * 1.5, g.userData.cz + Math.sin(a) * g.userData.r);
-      g.rotation.y = -a;
-      const wl = g.getObjectByName("wl")!,
-        wr = g.getObjectByName("wr")!;
-      const f = Math.sin(t * 9 + a) * 0.5;
-      wl.rotation.x = f;
-      wr.rotation.x = -f;
+    // دسته مرغ‌های دریایی (Instanced)
+    {
+      const d4 = M4,
+        qq = Q;
+      const scaleW = new THREE.Vector3();
+      for (let i = 0; i < w.flock.count; i++) {
+        const f = w.flockData[i];
+        f.a += dt * f.spd;
+        const x = f.cx + Math.cos(f.a) * f.r;
+        const z = f.cz + Math.sin(f.a) * f.r;
+        const y = f.h + Math.sin(f.a * 2) * 1.6 + Math.sin(t * 2 + i) * 0.4;
+        qq.setFromAxisAngle(UP, -f.a + Math.PI / 2);
+        const flap = 1 + Math.sin(t * 10 + i * 0.7) * 0.25;
+        scaleW.set(f.s, f.s * flap, f.s);
+        d4.compose(P.set(x, y, z), qq, scaleW);
+        w.flock.setMatrixAt(i, d4);
+      }
+      w.flock.instanceMatrix.needsUpdate = true;
+    }
+    // پاشش موج روی سنگفرش ساحل
+    for (const s of w.splashes) {
+      const ph = 0.5 + 0.5 * Math.sin(t * 1.8 + s.userData.ph);
+      (s.material as THREE.MeshBasicMaterial).opacity = 0.12 + ph * 0.45;
+      const sc = 0.7 + ph * 0.7;
+      s.scale.set(sc, sc, sc);
     }
     for (const c of w.clouds) {
       c.position.x += dt * 0.8;
@@ -1132,8 +1318,10 @@ export class Engine {
         m.emissiveIntensity = a.on ? base : 0;
         if (a.type === "ac") gm.visible = a.on;
       }
-      if (v.light) {
-        v.light.intensity = a.on ? (a.type === "bulb" ? (a.efficient ? 12 : 14) : a.type === "tv" ? 3 : 6) : 0;
+        if (v.light) {
+        const li = a.on ? (a.type === "bulb" ? (a.efficient ? 12 : 14) : a.type === "tv" ? 3 : 6) : 0;
+        v.light.intensity = li;
+        v.light.userData.cur = li;
         if (a.type === "bulb") v.light.color.set(a.efficient ? "#f4f8ff" : "#ffb347");
       }
       const show = st.scannerActive && st.inHouse && !a.fixed;
@@ -1165,8 +1353,54 @@ export class Engine {
     sm.emissiveIntensity = 0.6 + Math.sin(t * 6) * 0.2;
     // scanner in hand
     this.hero.setScannerVisible(st.scannerActive);
-    // extra worlds (solar city, wind, nuclear, crypto) animations
+    // خاموش‌کردن نورهای نقطه‌ای دور (سبک‌سازی)
+    this.cullDistantLights();
+    // همگام‌سازی مأموریت‌ها (مثل کدهای تقلب) با صحنه
+    for (const id of st.worldPads) {
+      if (!this.syncedPads.has(id)) {
+        this.zones.setPad(id, true);
+        this.syncedPads.add(id);
+      }
+    }
+    if (st.medalGiven) this.hero.setMedal(true);
+    // مخفی‌کردن نشانگرهای ایمنی پس از تکمیل دیالوگ
+    for (const id of ["safety_kid", "safety_flag"]) if (st.worldPads.includes(id)) this.zones.setPad(id, true);
+    // تابلوی هوشمند کنار خانه فاطمه
+    if (w.houseBoard) {
+      const hc = houseConsumption(st);
+      w.houseBoard.set(Math.max(0, hc.net) / 1000, 2.6, dt);
+    }
+    // چراغ هشدار قرمز شهرک ایمنی
+    {
+      const warnLamp = w.group.getObjectByName("warnLamp") as THREE.Mesh | null;
+      if (warnLamp) (warnLamp.material as THREE.MeshStandardMaterial).emissiveIntensity = Math.sin(t * 6) > 0 ? 3 : 0.1;
+    }
+    // باران: تنظیمات یا هنگام مأموریت ایمنی کنار مسجد (شهر اول، دو خیابان بالاتر)
+    const rainOn = st.weather === "rain" || (!safetyDone && this.pos.z > 66 && this.pos.z < 108);
+    this.rain.update(dt, rainOn, this.pos);
+    audio.rain(rainOn && st.phase === "playing" && st.settings.sfx);
+
+    // extra worlds (solar city, wind, nuclear, crypto, safety) animations
     this.zones.update(dt, t, st.activeWorld, st.worldPads);
+
+    // مدال افتخار و نورافشانی پایانی
+    if (st.medalGiven && !this.medalStarted) {
+      this.medalStarted = true;
+      this.hero.setMedal(true);
+      this.hero.celebrate();
+      audio.applause(6);
+      this.fireworkT = 0;
+    }
+    if (this.fireworkT >= 0) {
+      this.fireworkT += dt;
+      for (let k = 0; k < 3; k++) {
+        if (Math.random() < dt * 6) {
+          const colors = ["#ffd23a", "#ff5a8a", "#5ad0ff", "#8aff7a", "#c08aff"];
+          this.particles.burst(this.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 14, 14 + Math.random() * 12, (Math.random() - 0.5) * 10)), 26, colors[Math.floor(Math.random() * colors.length)]);
+        }
+      }
+      if (this.fireworkT > 7) this.fireworkT = -1;
+    }
     // unlock glider after wind world
     const gliderNow = isGliderUnlocked(st.worldPads);
     if (gliderNow && !this.gliderWasUnlocked) {
@@ -1189,6 +1423,7 @@ export class Engine {
       }
       this.yaw += dt * 0.6;
     }
+    if (this.lastPanel === "dialog" && st.panel !== "dialog") this.activeNpcId = null;
     this.lastPanel = st.panel;
     void sunFactor;
   }
@@ -1226,6 +1461,7 @@ export class Engine {
         if (this.saveT > 25) {
           this.saveT = 0;
           st.save();
+          st.recordProgress();
         }
       }
     } else {
